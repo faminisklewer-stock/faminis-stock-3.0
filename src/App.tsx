@@ -51,6 +51,7 @@ type ProductRecord = { id: string; sku: string; name: string; unit: string; vari
 type StockRecord = { product_id: string; location_id: string; quantity: number }
 type StockRow = StockRecord & { product?: ProductRecord }
 type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string }
+type TransferItemRecord = { id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -404,12 +405,14 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
 
 function TransfersView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
   const [transfers, setTransfers] = useState<TransferRecord[]>([])
+  const [transferItems, setTransferItems] = useState<TransferItemRecord[]>([])
   const [products, setProducts] = useState<ProductRecord[]>([])
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [note, setNote] = useState('')
+  const [receiptDrafts, setReceiptDrafts] = useState<Record<string, { quantity: string; note: string }>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -421,12 +424,28 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   async function loadTransfers() {
     if (!client) return
     setLoading(true)
-    const [transferResult, productResult] = await Promise.all([
+    const [transferResult, productResult, itemResult] = await Promise.all([
       client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at').order('created_at', { ascending: false }).limit(50),
       client.from('products').select('id, sku, name, unit, variant, active').eq('active', true).order('name'),
+      client.from('stock_transfer_items').select('id, transfer_id, product_id, shipped_quantity, received_quantity, discrepancy_reason'),
     ])
-    if (transferResult.error || productResult.error) setError('Data transfer tidak dapat dimuat dari Supabase.')
-    else { setTransfers((transferResult.data ?? []) as TransferRecord[]); setProducts((productResult.data ?? []) as ProductRecord[]) }
+    if (transferResult.error || productResult.error || itemResult.error) setError('Data transfer tidak dapat dimuat dari Supabase.')
+    else {
+      const nextItems = (itemResult.data ?? []) as TransferItemRecord[]
+      setTransfers((transferResult.data ?? []) as TransferRecord[])
+      setProducts((productResult.data ?? []) as ProductRecord[])
+      setTransferItems(nextItems)
+      setReceiptDrafts((current) => {
+        const nextDrafts = { ...current }
+        for (const item of nextItems) {
+          nextDrafts[item.id] = nextDrafts[item.id] ?? {
+            quantity: String(item.received_quantity ?? item.shipped_quantity),
+            note: item.discrepancy_reason ?? '',
+          }
+        }
+        return nextDrafts
+      })
+    }
     setLoading(false)
   }
 
@@ -454,6 +473,44 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     setMessage(`Transfer berhasil menjadi ${nextStatus}.`); setNote(''); void loadTransfers(); window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
+  async function receiveTransfer(transfer: TransferRecord) {
+    if (!client) return
+    const items = transferItems.filter((item) => item.transfer_id === transfer.id)
+    if (!items.length) { setError('Detail transfer tidak tersedia untuk penerimaan.'); return }
+    const payload: Array<{ product_id: string; received_quantity: number; discrepancy_reason?: string | null }> = []
+
+    for (const item of items) {
+      const draft = receiptDrafts[item.id] ?? { quantity: String(item.received_quantity ?? item.shipped_quantity), note: item.discrepancy_reason ?? '' }
+      const receivedQuantity = Number(draft.quantity)
+      if (!Number.isInteger(receivedQuantity) || receivedQuantity < 0 || receivedQuantity > item.shipped_quantity) {
+        setError(`Jumlah terima untuk ${products.find((product) => product.id === item.product_id)?.name ?? 'produk'} harus antara 0 dan ${item.shipped_quantity}.`)
+        return
+      }
+      if (receivedQuantity < item.shipped_quantity && !draft.note.trim()) {
+        setError('Wajib isi alasan ketika jumlah yang diterima kurang dari kiriman.')
+        return
+      }
+      payload.push({
+        product_id: item.product_id,
+        received_quantity: receivedQuantity,
+        discrepancy_reason: receivedQuantity < item.shipped_quantity ? draft.note.trim() || null : null,
+      })
+    }
+
+    setSaving(true); setError(''); setMessage('')
+    const { error: receiveError } = await client.rpc('receive_transfer', {
+      p_transfer_id: transfer.id,
+      p_items: payload,
+      p_note: payload.some((item) => item.discrepancy_reason) ? payload.map((item) => item.discrepancy_reason ?? '').filter(Boolean).join('; ') : null,
+    })
+    setSaving(false)
+    if (receiveError) { setError(receiveError.message); return }
+
+    setMessage('Penerimaan transfer berhasil dicatat.')
+    void loadTransfers()
+    window.dispatchEvent(new Event('faminis:data-changed'))
+  }
+
   const locationName = (id: string) => locations.find((location) => location.id === id)?.name ?? 'Lokasi'
   const actionFor = (transfer: TransferRecord) => {
     if (transfer.status === 'DRAFT') return 'REQUESTED'
@@ -463,7 +520,15 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     if (transfer.status === 'RECEIVED' && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'COMPLETED'
     return null
   }
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">STOCK TRANSFERS</p><h1>Transfer</h1><p className="subtitle">Pindahkan stok melalui status DRAFT sampai COMPLETED.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={createTransfer}><div className="panel-heading"><div><h2>Buat transfer</h2><p>Stok belum berubah sampai tahap SHIPPED.</p></div></div><label>Dari<select value={source} onChange={(event) => setSource(event.target.value)} disabled={!canChooseSource}>{allowedSources.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Ke<select value={destination} onChange={(event) => setDestination(event.target.value)}>{locations.filter((location) => location.id !== source).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Catatan<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional, wajib untuk selisih saat menerima" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Buat transfer'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar transfer</h2><p>{transfers.length} transfer terlihat sesuai akses Anda</p></div></div>{loading ? <div className="empty-state">Memuat transfer...</div> : <div className="table-wrap"><table><thead><tr><th>Rute</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead><tbody>{transfers.map((transfer) => <tr key={transfer.id}><td><strong>{locationName(transfer.source_location_id)} → {locationName(transfer.destination_location_id)}</strong><small className="table-subline">{transfer.notes ?? 'Tanpa catatan'}</small></td><td><span className="transfer-status">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleDateString('id-ID')}</td><td>{actionFor(transfer) ? <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, actionFor(transfer) as string)}>{actionFor(transfer)}</button> : <span className="muted-text">Menunggu</span>}</td></tr>)}</tbody></table>{!transfers.length && <div className="empty-state">Belum ada transfer.</div>}</div>}</div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}</section>
+  const renderTransferAction = (transfer: TransferRecord) => {
+    const nextAction = actionFor(transfer)
+    if (!nextAction) return <span className="muted-text">Menunggu</span>
+    const buttonAction = nextAction === 'RECEIVED'
+      ? <button className="text-button" type="button" disabled={saving} onClick={() => void receiveTransfer(transfer)}>{nextAction}</button>
+      : <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{nextAction}</button>
+    return buttonAction
+  }
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">STOCK TRANSFERS</p><h1>Transfer</h1><p className="subtitle">Pindahkan stok melalui status DRAFT sampai COMPLETED.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={createTransfer}><div className="panel-heading"><div><h2>Buat transfer</h2><p>Stok belum berubah sampai tahap SHIPPED.</p></div></div><label>Dari<select value={source} onChange={(event) => setSource(event.target.value)} disabled={!canChooseSource}>{allowedSources.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Ke<select value={destination} onChange={(event) => setDestination(event.target.value)}>{locations.filter((location) => location.id !== source).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Catatan<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional, wajib untuk selisih saat menerima" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Buat transfer'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar transfer</h2><p>{transfers.length} transfer terlihat sesuai akses Anda</p></div></div>{loading ? <div className="empty-state">Memuat transfer...</div> : <div className="table-wrap"><table><thead><tr><th>Rute</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead><tbody>{transfers.map((transfer) => <tr key={transfer.id}><td><strong>{locationName(transfer.source_location_id)} → {locationName(transfer.destination_location_id)}</strong><small className="table-subline">{transfer.notes ?? 'Tanpa catatan'}</small></td><td><span className="transfer-status">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleDateString('id-ID')}</td><td>{renderTransferAction(transfer)}</td></tr>)}</tbody></table>{!transfers.length && <div className="empty-state">Belum ada transfer.</div>}</div>}</div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}</section>
 }
 
 function AccessRestricted({ title, message }: { title: string; message: string }) {
