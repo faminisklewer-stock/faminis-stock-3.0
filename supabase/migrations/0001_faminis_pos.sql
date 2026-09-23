@@ -1,9 +1,20 @@
 create extension if not exists pgcrypto;
 
-create type public.app_role as enum ('MASTER', 'OWNER', 'WAREHOUSE', 'LIVE', 'RUKO');
-create type public.payment_method as enum ('CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT');
-create type public.movement_type as enum ('PURCHASE', 'SALE', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT', 'RETURN');
-create type public.transfer_status as enum ('DRAFT', 'REQUESTED', 'APPROVED', 'SHIPPED', 'RECEIVED', 'COMPLETED', 'REJECTED', 'CANCELLED');
+do $$
+begin
+  if not exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'app_role') then
+    create type public.app_role as enum ('MASTER', 'OWNER', 'WAREHOUSE', 'LIVE', 'RUKO');
+  end if;
+  if not exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'payment_method') then
+    create type public.payment_method as enum ('CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT');
+  end if;
+  if not exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'movement_type') then
+    create type public.movement_type as enum ('PURCHASE', 'SALE', 'TRANSFER_OUT', 'TRANSFER_IN', 'ADJUSTMENT', 'RETURN');
+  end if;
+  if not exists (select 1 from pg_type where typnamespace = 'public'::regnamespace and typname = 'transfer_status') then
+    create type public.transfer_status as enum ('DRAFT', 'REQUESTED', 'APPROVED', 'SHIPPED', 'RECEIVED', 'COMPLETED', 'REJECTED', 'CANCELLED');
+  end if;
+end $$;
 
 create table public.locations (
   id uuid primary key default gen_random_uuid(),
