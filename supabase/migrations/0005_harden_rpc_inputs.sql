@@ -45,8 +45,10 @@ begin
   if actor not in ('MASTER', 'WAREHOUSE', 'RUKO', 'LIVE') then raise exception 'ROLE_NOT_ALLOWED'; end if;
   if p_source_location_id is null or p_destination_location_id is null or p_source_location_id = p_destination_location_id or not public.can_access_location(p_source_location_id) then raise exception 'PERMISSION_DENIED'; end if;
   if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then raise exception 'INVALID_TRANSFER_REQUEST'; end if;
+  if not exists (select 1 from public.locations where id = p_destination_location_id and active) then raise exception 'INVALID_DESTINATION_LOCATION'; end if;
   for item in select * from jsonb_array_elements(p_items) loop
     if coalesce((item->>'quantity')::integer, 0) <= 0 then raise exception 'INVALID_QUANTITY'; end if;
+    if not exists (select 1 from public.products where id = (item->>'product_id')::uuid and active) then raise exception 'PRODUCT_NOT_ACTIVE'; end if;
   end loop;
   insert into public.stock_transfers(source_location_id, destination_location_id, requested_by, notes) values (p_source_location_id, p_destination_location_id, auth.uid(), p_notes) returning * into transfer;
   for item in select * from jsonb_array_elements(p_items) loop

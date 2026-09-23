@@ -162,10 +162,14 @@ begin
   elsif p_next_status = 'RECEIVED' then
     for item in select * from public.stock_transfer_items where transfer_id = p_transfer_id loop
       received := coalesce(item.received_quantity, item.shipped_quantity);
-      if received < 0 or received > item.shipped_quantity then raise exception 'INVALID_RECEIVED_QUANTITY'; end if;
+        if received < 0 or received > item.shipped_quantity then raise exception 'INVALID_RECEIVED_QUANTITY'; end if;
+        if received < item.shipped_quantity and coalesce(trim(p_note), '') = '' then raise exception 'DISCREPANCY_REASON_REQUIRED'; end if;
       if not exists (select 1 from public.transit_stocks where transfer_id = p_transfer_id and product_id = item.product_id) then raise exception 'TRANSIT_STOCK_NOT_FOUND'; end if;
       delete from public.transit_stocks where transfer_id = p_transfer_id and product_id = item.product_id;
-      update public.stock_transfer_items set received_quantity = received where id = item.id;
+        update public.stock_transfer_items
+        set received_quantity = received,
+          discrepancy_reason = case when received < shipped_quantity then p_note else null end
+        where id = item.id;
       insert into public.stocks(product_id, location_id, quantity) values (item.product_id, transfer.destination_location_id, received) on conflict (product_id, location_id) do update set quantity = stocks.quantity + excluded.quantity, updated_at = now();
       insert into public.stock_movements(product_id, location_id, movement_type, quantity, reference_type, reference_id, created_by) values (item.product_id, transfer.destination_location_id, 'TRANSFER_IN', received, 'STOCK_TRANSFER', p_transfer_id, auth.uid());
     end loop;
