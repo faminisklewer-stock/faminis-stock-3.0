@@ -1,4 +1,4 @@
-import { Component, useEffect, useState } from 'react'
+import { Component, useCallback, useEffect, useState } from 'react'
 import type { ErrorInfo, FormEvent, ReactNode } from 'react'
 import {
   ArrowDownToLine,
@@ -423,7 +423,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const canChooseSource = profile.role === 'MASTER' || profile.role === 'OWNER'
   const allowedSources = canChooseSource ? locations : locations.filter((location) => location.id === profile.location_id)
 
-  async function loadTransfers() {
+  const loadTransfers = useCallback(async () => {
     if (!client) return
     setLoading(true)
     const [transferResult, productResult, itemResult] = await Promise.all([
@@ -449,9 +449,25 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
       })
     }
     setLoading(false)
-  }
+  }, [client])
 
-  useEffect(() => { void loadTransfers() }, [client])
+  useEffect(() => { void loadTransfers() }, [loadTransfers])
+
+  useEffect(() => {
+    if (!client) return
+    const channel = client.channel('transfer-live-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfers' }, () => {
+        void loadTransfers()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfer_items' }, () => {
+        void loadTransfers()
+      })
+      .subscribe()
+
+    return () => {
+      void client.removeChannel(channel)
+    }
+  }, [client, loadTransfers])
   useEffect(() => { if (!destination) setDestination(locations.find((location) => location.id !== source)?.id ?? '') }, [destination, locations, source])
 
   async function createTransfer(event: FormEvent) {
