@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import { Component, useEffect, useState } from 'react'
+import type { ErrorInfo, FormEvent, ReactNode } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -46,6 +46,25 @@ type DashboardData = {
 
 type PosProduct = { id: string; sku: string; name: string; unit: string; stock: number }
 type CartItem = PosProduct & { quantity: number; unitPrice: number }
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Application render error', error, info)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <div className="auth-state"><div className="login-card"><div className="brand login-brand"><span className="brand-mark">F</span><span>faminis<span className="brand-dot">.</span></span></div><h1>Kasir perlu dimuat ulang.</h1><p className="subtitle">Data produk tidak dapat ditampilkan. Muat ulang halaman lalu coba lagi.</p><button className="button button-primary" type="button" onClick={() => window.location.reload()}>Muat ulang</button></div></div>
+    }
+    return this.props.children
+  }
+}
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value)
@@ -98,7 +117,7 @@ function App() {
       else setProfile(userProfile as Profile)
     }} />
 
-  return <Dashboard profile={profile} onLogout={() => { void client.auth.signOut() }} />
+  return <AppErrorBoundary><Dashboard profile={profile} onLogout={() => { void client.auth.signOut() }} /></AppErrorBoundary>
 }
 
 function LoginScreen({ onLogin }: { onLogin: (session: { user: { id: string; email?: string } }) => void }) {
@@ -264,7 +283,7 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
-  return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU or product..." /></div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.stock} {product.unit} available</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label><label>Paid amount<input type="number" min="0" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="0" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
+  return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU or product..." /></div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button type="button" className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.stock} {product.unit} available</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button type="button" className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label><label>Paid amount<input type="number" min="0" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="0" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button type="button" className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
 }
 
 function ReportsView({ data }: { data: DashboardData }) {
