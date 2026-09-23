@@ -16,7 +16,7 @@ begin
   end if;
 end $$;
 
-create table public.locations (
+create table if not exists public.locations (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,
   name text not null,
@@ -25,7 +25,7 @@ create table public.locations (
   created_at timestamptz not null default now()
 );
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
   role public.app_role not null,
@@ -36,14 +36,14 @@ create table public.profiles (
   check ((role in ('MASTER', 'OWNER') and location_id is null) or role in ('WAREHOUSE', 'LIVE', 'RUKO'))
 );
 
-create table public.categories (
+create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
   active boolean not null default true,
   created_at timestamptz not null default now()
 );
 
-create table public.products (
+create table if not exists public.products (
   id uuid primary key default gen_random_uuid(),
   sku text not null unique,
   name text not null,
@@ -61,7 +61,7 @@ create table public.products (
   updated_at timestamptz not null default now()
 );
 
-create table public.stocks (
+create table if not exists public.stocks (
   product_id uuid not null references public.products(id) on delete restrict,
   location_id uuid not null references public.locations(id) on delete restrict,
   quantity integer not null default 0 check (quantity >= 0),
@@ -70,7 +70,7 @@ create table public.stocks (
   primary key (product_id, location_id)
 );
 
-create table public.transactions (
+create table if not exists public.transactions (
   id uuid primary key default gen_random_uuid(),
   invoice_no text not null unique,
   location_id uuid not null references public.locations(id),
@@ -82,7 +82,7 @@ create table public.transactions (
   created_at timestamptz not null default now()
 );
 
-create table public.transaction_items (
+create table if not exists public.transaction_items (
   id uuid primary key default gen_random_uuid(),
   transaction_id uuid not null references public.transactions(id) on delete cascade,
   product_id uuid not null references public.products(id),
@@ -91,7 +91,7 @@ create table public.transaction_items (
   line_total numeric(14,2) generated always as (quantity * unit_price) stored
 );
 
-create table public.payments (
+create table if not exists public.payments (
   id uuid primary key default gen_random_uuid(),
   transaction_id uuid not null unique references public.transactions(id) on delete cascade,
   method public.payment_method not null,
@@ -100,7 +100,7 @@ create table public.payments (
   created_at timestamptz not null default now()
 );
 
-create table public.stock_movements (
+create table if not exists public.stock_movements (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id),
   location_id uuid not null references public.locations(id),
@@ -112,7 +112,7 @@ create table public.stock_movements (
   created_at timestamptz not null default now()
 );
 
-create table public.purchase_receipts (
+create table if not exists public.purchase_receipts (
   id uuid primary key default gen_random_uuid(),
   supplier_name text not null,
   location_id uuid not null references public.locations(id),
@@ -120,7 +120,7 @@ create table public.purchase_receipts (
   received_at timestamptz not null default now()
 );
 
-create table public.purchase_receipt_items (
+create table if not exists public.purchase_receipt_items (
   id uuid primary key default gen_random_uuid(),
   receipt_id uuid not null references public.purchase_receipts(id) on delete cascade,
   product_id uuid not null references public.products(id),
@@ -128,7 +128,7 @@ create table public.purchase_receipt_items (
   purchase_cost numeric(14,2) check (purchase_cost is null or purchase_cost >= 0)
 );
 
-create table public.stock_transfers (
+create table if not exists public.stock_transfers (
   id uuid primary key default gen_random_uuid(),
   source_location_id uuid not null references public.locations(id),
   destination_location_id uuid not null references public.locations(id),
@@ -142,7 +142,7 @@ create table public.stock_transfers (
   check (source_location_id <> destination_location_id)
 );
 
-create table public.stock_transfer_items (
+create table if not exists public.stock_transfer_items (
   id uuid primary key default gen_random_uuid(),
   transfer_id uuid not null references public.stock_transfers(id) on delete cascade,
   product_id uuid not null references public.products(id),
@@ -151,7 +151,7 @@ create table public.stock_transfer_items (
   discrepancy_reason text
 );
 
-create table public.stock_transfer_events (
+create table if not exists public.stock_transfer_events (
   id uuid primary key default gen_random_uuid(),
   transfer_id uuid not null references public.stock_transfers(id) on delete cascade,
   status public.transfer_status not null,
@@ -160,7 +160,7 @@ create table public.stock_transfer_events (
   created_at timestamptz not null default now()
 );
 
-create table public.stock_adjustments (
+create table if not exists public.stock_adjustments (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id),
   location_id uuid not null references public.locations(id),
@@ -172,7 +172,7 @@ create table public.stock_adjustments (
   created_at timestamptz not null default now()
 );
 
-create table public.audit_logs (
+create table if not exists public.audit_logs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references public.profiles(id),
   role public.app_role,
@@ -185,22 +185,22 @@ create table public.audit_logs (
   created_at timestamptz not null default now()
 );
 
-create table public.settings (
+create table if not exists public.settings (
   key text primary key,
   value jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now(),
   updated_by uuid references public.profiles(id)
 );
 
-create index stocks_location_idx on public.stocks(location_id);
-create index transactions_location_date_idx on public.transactions(location_id, created_at desc);
-create index transaction_items_transaction_idx on public.transaction_items(transaction_id);
-create index transaction_items_product_idx on public.transaction_items(product_id);
-create index movements_product_location_date_idx on public.stock_movements(product_id, location_id, created_at desc);
-create index transfers_source_status_idx on public.stock_transfers(source_location_id, status);
-create index transfers_destination_status_idx on public.stock_transfers(destination_location_id, status);
-create index transfer_items_transfer_idx on public.stock_transfer_items(transfer_id);
-create index audit_location_date_idx on public.audit_logs(location_id, created_at desc);
+create index if not exists stocks_location_idx on public.stocks(location_id);
+create index if not exists transactions_location_date_idx on public.transactions(location_id, created_at desc);
+create index if not exists transaction_items_transaction_idx on public.transaction_items(transaction_id);
+create index if not exists transaction_items_product_idx on public.transaction_items(product_id);
+create index if not exists movements_product_location_date_idx on public.stock_movements(product_id, location_id, created_at desc);
+create index if not exists transfers_source_status_idx on public.stock_transfers(source_location_id, status);
+create index if not exists transfers_destination_status_idx on public.stock_transfers(destination_location_id, status);
+create index if not exists transfer_items_transfer_idx on public.stock_transfer_items(transfer_id);
+create index if not exists audit_location_date_idx on public.audit_logs(location_id, created_at desc);
 
 create or replace function public.current_profile()
 returns public.profiles language sql stable security definer set search_path = public
@@ -266,21 +266,37 @@ alter table public.stock_adjustments enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.settings enable row level security;
 
+drop policy if exists "active users read locations" on public.locations;
 create policy "active users read locations" on public.locations for select using (exists (select 1 from public.profiles where id = auth.uid() and active));
+drop policy if exists "users read own profile" on public.profiles;
 create policy "users read own profile" on public.profiles for select using (id = auth.uid() or exists (select 1 from public.profiles where id = auth.uid() and role in ('MASTER','OWNER')));
+drop policy if exists "scoped catalog read" on public.categories;
 create policy "scoped catalog read" on public.categories for select using (exists (select 1 from public.profiles where id = auth.uid() and active));
+drop policy if exists "scoped product read" on public.products;
 create policy "scoped product read" on public.products for select using (exists (select 1 from public.profiles where id = auth.uid() and active));
+drop policy if exists "scoped stock read" on public.stocks;
 create policy "scoped stock read" on public.stocks for select using (public.can_access_location(location_id));
+drop policy if exists "scoped transaction read" on public.transactions;
 create policy "scoped transaction read" on public.transactions for select using (public.can_access_location(location_id));
+drop policy if exists "scoped movement read" on public.stock_movements;
 create policy "scoped movement read" on public.stock_movements for select using (public.can_access_location(location_id));
+drop policy if exists "scoped audit read" on public.audit_logs;
 create policy "scoped audit read" on public.audit_logs for select using (public.can_access_location(location_id) or exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER'));
+drop policy if exists "scoped transfer read" on public.stock_transfers;
 create policy "scoped transfer read" on public.stock_transfers for select using (public.can_access_location(source_location_id) or public.can_access_location(destination_location_id));
+drop policy if exists "transfer items read" on public.stock_transfer_items;
 create policy "transfer items read" on public.stock_transfer_items for select using (exists (select 1 from public.stock_transfers t where t.id = transfer_id and (public.can_access_location(t.source_location_id) or public.can_access_location(t.destination_location_id))));
+drop policy if exists "transfer events read" on public.stock_transfer_events;
 create policy "transfer events read" on public.stock_transfer_events for select using (exists (select 1 from public.stock_transfers t where t.id = transfer_id and (public.can_access_location(t.source_location_id) or public.can_access_location(t.destination_location_id))));
+drop policy if exists "transaction items read" on public.transaction_items;
 create policy "transaction items read" on public.transaction_items for select using (exists (select 1 from public.transactions t where t.id = transaction_id and public.can_access_location(t.location_id)));
+drop policy if exists "payments read" on public.payments;
 create policy "payments read" on public.payments for select using (exists (select 1 from public.transactions t where t.id = transaction_id and public.can_access_location(t.location_id)));
+drop policy if exists "master writes catalog" on public.products;
 create policy "master writes catalog" on public.products for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER')) with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER'));
+drop policy if exists "master writes categories" on public.categories;
 create policy "master writes categories" on public.categories for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER')) with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER'));
+drop policy if exists "master writes settings" on public.settings;
 create policy "master writes settings" on public.settings for all using (exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER')) with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'MASTER'));
 
 grant execute on function public.record_sale(uuid, jsonb, numeric, public.payment_method, numeric, uuid) to authenticated;

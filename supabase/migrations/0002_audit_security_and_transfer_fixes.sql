@@ -8,9 +8,18 @@ create table if not exists public.transit_stocks (
   primary key (transfer_id, product_id)
 );
 
-alter table public.stock_transfer_items
-  add constraint stock_transfer_received_lte_shipped
-  check (received_quantity is null or received_quantity <= shipped_quantity);
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'stock_transfer_received_lte_shipped'
+      and conrelid = 'public.stock_transfer_items'::regclass
+  ) then
+    alter table public.stock_transfer_items
+      add constraint stock_transfer_received_lte_shipped
+      check (received_quantity is null or received_quantity <= shipped_quantity);
+  end if;
+end $$;
 
 create index if not exists transit_stocks_product_idx on public.transit_stocks(product_id);
 alter table public.transit_stocks enable row level security;
@@ -31,9 +40,13 @@ as $$ begin if auth.uid() is null or public.current_user_role() is null then rai
 drop policy if exists "users read own profile" on public.profiles;
 create policy "users read own profile" on public.profiles for select using (id = auth.uid() or public.is_manager());
 
+drop policy if exists "scoped purchase read" on public.purchase_receipts;
 create policy "scoped purchase read" on public.purchase_receipts for select using (public.can_access_location(location_id));
+drop policy if exists "scoped purchase items read" on public.purchase_receipt_items;
 create policy "scoped purchase items read" on public.purchase_receipt_items for select using (exists (select 1 from public.purchase_receipts r where r.id = receipt_id and public.can_access_location(r.location_id)));
+drop policy if exists "scoped adjustment read" on public.stock_adjustments;
 create policy "scoped adjustment read" on public.stock_adjustments for select using (public.can_access_location(location_id));
+drop policy if exists "scoped transit read" on public.transit_stocks;
 create policy "scoped transit read" on public.transit_stocks for select using (exists (select 1 from public.stock_transfers t where t.id = transfer_id and (public.can_access_location(t.source_location_id) or public.can_access_location(t.destination_location_id))));
 
 create or replace function public.create_transfer(p_source_location_id uuid, p_destination_location_id uuid, p_items jsonb, p_notes text default null)
@@ -163,6 +176,7 @@ begin
   return transfer;
 end $$;
 
+drop policy if exists "transit visibility" on public.transit_stocks;
 create policy "transit visibility" on public.transit_stocks for select using (exists (select 1 from public.stock_transfers t where t.id = transfer_id and (public.can_access_location(t.source_location_id) or public.can_access_location(t.destination_location_id))));
 
 revoke all on function public.current_profile() from public, anon, authenticated;
