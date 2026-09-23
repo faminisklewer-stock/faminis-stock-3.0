@@ -46,6 +46,11 @@ type DashboardData = {
 
 type PosProduct = { id: string; sku: string; name: string; unit: string; stock: number }
 type CartItem = PosProduct & { quantity: number; unitPrice: number }
+type LocationOption = { id: string; name: string }
+type ProductRecord = { id: string; sku: string; name: string; unit: string; variant: string | null; active: boolean }
+type StockRecord = { product_id: string; location_id: string; quantity: number }
+type StockRow = StockRecord & { product?: ProductRecord }
+type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string }
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -208,7 +213,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       <main className="main-content">
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : <>
           <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary"><ArrowDownToLine size={16} /> Unduh laporan</button><button className="button button-primary"><Plus size={17} /> Transaksi baru</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{locations.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">01 Sep - 22 Sep 2026 <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
@@ -300,6 +305,169 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
   }
 
   return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU or product..." /></div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button type="button" className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.stock} {product.unit} available</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button type="button" className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label><label>Paid amount<input type="number" min="0" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="0" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button type="button" className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
+}
+
+function ProductsView({ profile }: { profile: Profile }) {
+  const [products, setProducts] = useState<ProductRecord[]>([])
+  const [query, setQuery] = useState('')
+  const [sku, setSku] = useState('')
+  const [name, setName] = useState('')
+  const [variant, setVariant] = useState('')
+  const [unit, setUnit] = useState('pcs')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const client = supabase
+  const canManage = profile.role === 'MASTER'
+
+  async function loadProducts() {
+    if (!client) return
+    setLoading(true)
+    const { data, error: loadError } = await client.from('products').select('id, sku, name, unit, variant, active').order('name')
+    if (loadError) setError('Produk tidak dapat dimuat dari Supabase.')
+    else setProducts((data ?? []) as ProductRecord[])
+    setLoading(false)
+  }
+
+  useEffect(() => { void loadProducts() }, [client])
+
+  async function saveProduct(event: FormEvent) {
+    event.preventDefault()
+    if (!client || !canManage) return
+    if (!sku.trim() || !name.trim() || !unit.trim()) { setError('SKU, nama, dan unit wajib diisi.'); return }
+    setSaving(true); setError(''); setMessage('')
+    const { error: saveError } = await client.from('products').insert({ sku: sku.trim(), name: name.trim(), variant: variant.trim() || null, unit: unit.trim() })
+    setSaving(false)
+    if (saveError) { setError(saveError.message.includes('duplicate') ? 'SKU sudah digunakan.' : 'Produk gagal disimpan.'); return }
+    setSku(''); setName(''); setVariant(''); setUnit('pcs'); setMessage('Produk berhasil dibuat.'); void loadProducts()
+  }
+
+  async function toggleProduct(product: ProductRecord) {
+    if (!client || !canManage) return
+    const { error: updateError } = await client.from('products').update({ active: !product.active }).eq('id', product.id)
+    if (updateError) setError('Status produk gagal diubah.')
+    else void loadProducts()
+  }
+
+  const filtered = products.filter((product) => `${product.sku} ${product.name} ${product.variant ?? ''}`.toLowerCase().includes(query.toLowerCase()))
+  if (!canManage) return <AccessRestricted title="Produk" message="Hanya MASTER yang dapat mengelola katalog produk." />
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PRODUCT CATALOG</p><h1>Produk</h1><p className="subtitle">Kelola katalog tanpa menyimpan harga jual permanen.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={saveProduct}><div className="panel-heading"><div><h2>Tambah produk</h2><p>Harga dimasukkan saat transaksi kasir.</p></div></div><label>SKU<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="DAS-001" /></label><label>Nama produk<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Daster Batik A" /></label><label>Varian<input value={variant} onChange={(event) => setVariant(event.target.value)} placeholder="Daster" /></label><label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="pcs" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan produk'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar produk</h2><p>{products.length} produk terdaftar</p></div><input className="table-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau nama" /></div>{loading ? <div className="empty-state">Memuat produk...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Nama</th><th>Varian</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>{filtered.map((product) => <tr key={product.id}><td><strong>{product.sku}</strong></td><td>{product.name}</td><td>{product.variant ?? '-'}</td><td>{product.unit}</td><td><span className={`status ${product.active ? '' : 'status-off'}`}><i></i>{product.active ? 'Aktif' : 'Nonaktif'}</span></td><td><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></td></tr>)}</tbody></table>{!filtered.length && <div className="empty-state">Produk tidak ditemukan.</div>}</div>}</div></div></section>
+}
+
+function StockView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
+  const [locationId, setLocationId] = useState(profile.location_id ?? locations[0]?.id ?? '')
+  const [products, setProducts] = useState<ProductRecord[]>([])
+  const [stocks, setStocks] = useState<StockRecord[]>([])
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<StockRow | null>(null)
+  const [physical, setPhysical] = useState('')
+  const [reason, setReason] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const client = supabase
+  const canAdjust = profile.role === 'MASTER' || profile.role === 'WAREHOUSE'
+  const allowedLocations = profile.role === 'MASTER' || profile.role === 'OWNER' ? locations : locations.filter((location) => location.id === profile.location_id)
+
+  async function loadStock() {
+    if (!client || !locationId) return
+    setLoading(true)
+    const [productResult, stockResult] = await Promise.all([
+      client.from('products').select('id, sku, name, unit, variant, active').eq('active', true).order('name'),
+      client.from('stocks').select('product_id, location_id, quantity').eq('location_id', locationId),
+    ])
+    if (productResult.error || stockResult.error) setError('Stok tidak dapat dimuat dari Supabase.')
+    else { setProducts((productResult.data ?? []) as ProductRecord[]); setStocks((stockResult.data ?? []) as StockRecord[]) }
+    setLoading(false)
+  }
+
+  useEffect(() => { void loadStock() }, [client, locationId])
+  useEffect(() => { if (!locationId && allowedLocations[0]?.id) setLocationId(allowedLocations[0].id) }, [locationId, allowedLocations])
+
+  async function adjustStock(event: FormEvent) {
+    event.preventDefault()
+    if (!client || !selected || !canAdjust) return
+    const quantity = Number(physical)
+    if (!Number.isInteger(quantity) || quantity < 0 || !reason.trim()) { setError('Jumlah fisik dan alasan wajib diisi.'); return }
+    setSaving(true); setError(''); setMessage('')
+    const { error: adjustmentError } = await client.rpc('adjust_stock', { p_product_id: selected.product_id, p_location_id: selected.location_id, p_physical_quantity: quantity, p_reason: reason.trim() })
+    setSaving(false)
+    if (adjustmentError) { setError(adjustmentError.message); return }
+    setMessage('Adjustment stok berhasil disimpan.'); setSelected(null); setPhysical(''); setReason(''); void loadStock(); window.dispatchEvent(new Event('faminis:data-changed'))
+  }
+
+  const rows: StockRow[] = stocks.map((stock) => ({ ...stock, product: products.find((product) => product.id === stock.product_id) })).filter((row) => row.product && `${row.product.sku} ${row.product.name}`.toLowerCase().includes(query.toLowerCase()))
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={allowedLocations.length < 2}>{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}<div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th><th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={row.product_id}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td><td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">Belum ada saldo stok di lokasi ini.</div>}</div>}</div>{selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}</section>
+}
+
+function TransfersView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
+  const [transfers, setTransfers] = useState<TransferRecord[]>([])
+  const [products, setProducts] = useState<ProductRecord[]>([])
+  const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
+  const [destination, setDestination] = useState('')
+  const [productId, setProductId] = useState('')
+  const [quantity, setQuantity] = useState('1')
+  const [note, setNote] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const client = supabase
+  const canChooseSource = profile.role === 'MASTER' || profile.role === 'OWNER'
+  const allowedSources = canChooseSource ? locations : locations.filter((location) => location.id === profile.location_id)
+
+  async function loadTransfers() {
+    if (!client) return
+    setLoading(true)
+    const [transferResult, productResult] = await Promise.all([
+      client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at').order('created_at', { ascending: false }).limit(50),
+      client.from('products').select('id, sku, name, unit, variant, active').eq('active', true).order('name'),
+    ])
+    if (transferResult.error || productResult.error) setError('Data transfer tidak dapat dimuat dari Supabase.')
+    else { setTransfers((transferResult.data ?? []) as TransferRecord[]); setProducts((productResult.data ?? []) as ProductRecord[]) }
+    setLoading(false)
+  }
+
+  useEffect(() => { void loadTransfers() }, [client])
+  useEffect(() => { if (!destination) setDestination(locations.find((location) => location.id !== source)?.id ?? '') }, [destination, locations, source])
+
+  async function createTransfer(event: FormEvent) {
+    event.preventDefault()
+    if (!client) return
+    const amount = Number(quantity)
+    if (!source || !destination || source === destination || !productId || !Number.isInteger(amount) || amount <= 0) { setError('Source, tujuan, produk, dan quantity wajib diisi.'); return }
+    setSaving(true); setError(''); setMessage('')
+    const { error: createError } = await client.rpc('create_transfer', { p_source_location_id: source, p_destination_location_id: destination, p_items: [{ product_id: productId, quantity: amount }], p_notes: note.trim() || null })
+    setSaving(false)
+    if (createError) { setError(createError.message); return }
+    setMessage('Transfer DRAFT berhasil dibuat.'); setQuantity('1'); setNote(''); void loadTransfers()
+  }
+
+  async function transition(transfer: TransferRecord, nextStatus: string) {
+    if (!client) return
+    setSaving(true); setError(''); setMessage('')
+    const { error: transitionError } = await client.rpc('transition_transfer', { p_transfer_id: transfer.id, p_next_status: nextStatus, p_note: note.trim() || null })
+    setSaving(false)
+    if (transitionError) { setError(transitionError.message); return }
+    setMessage(`Transfer berhasil menjadi ${nextStatus}.`); setNote(''); void loadTransfers(); window.dispatchEvent(new Event('faminis:data-changed'))
+  }
+
+  const locationName = (id: string) => locations.find((location) => location.id === id)?.name ?? 'Lokasi'
+  const actionFor = (transfer: TransferRecord) => {
+    if (transfer.status === 'DRAFT') return 'REQUESTED'
+    if (transfer.status === 'REQUESTED' && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'APPROVED'
+    if (transfer.status === 'APPROVED' && (profile.role === 'MASTER' || profile.role === 'WAREHOUSE')) return 'SHIPPED'
+    if (transfer.status === 'SHIPPED' && transfer.destination_location_id === profile.location_id) return 'RECEIVED'
+    if (transfer.status === 'RECEIVED' && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'COMPLETED'
+    return null
+  }
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">STOCK TRANSFERS</p><h1>Transfer</h1><p className="subtitle">Pindahkan stok melalui status DRAFT sampai COMPLETED.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={createTransfer}><div className="panel-heading"><div><h2>Buat transfer</h2><p>Stok belum berubah sampai tahap SHIPPED.</p></div></div><label>Dari<select value={source} onChange={(event) => setSource(event.target.value)} disabled={!canChooseSource}>{allowedSources.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Ke<select value={destination} onChange={(event) => setDestination(event.target.value)}>{locations.filter((location) => location.id !== source).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Catatan<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional, wajib untuk selisih saat menerima" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Buat transfer'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar transfer</h2><p>{transfers.length} transfer terlihat sesuai akses Anda</p></div></div>{loading ? <div className="empty-state">Memuat transfer...</div> : <div className="table-wrap"><table><thead><tr><th>Rute</th><th>Status</th><th>Tanggal</th><th>Aksi</th></tr></thead><tbody>{transfers.map((transfer) => <tr key={transfer.id}><td><strong>{locationName(transfer.source_location_id)} → {locationName(transfer.destination_location_id)}</strong><small className="table-subline">{transfer.notes ?? 'Tanpa catatan'}</small></td><td><span className="transfer-status">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleDateString('id-ID')}</td><td>{actionFor(transfer) ? <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, actionFor(transfer) as string)}>{actionFor(transfer)}</button> : <span className="muted-text">Menunggu</span>}</td></tr>)}</tbody></table>{!transfers.length && <div className="empty-state">Belum ada transfer.</div>}</div>}</div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}</section>
+}
+
+function AccessRestricted({ title, message }: { title: string; message: string }) {
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">ACCESS CONTROL</p><h1>{title}</h1><p className="subtitle">{message}</p></div></div></section>
 }
 
 function ReportsView({ data }: { data: DashboardData }) {
