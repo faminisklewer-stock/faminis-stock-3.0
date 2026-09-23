@@ -50,7 +50,7 @@ type LocationOption = { id: string; name: string }
 type ProductRecord = { id: string; sku: string; name: string; unit: string; variant: string | null; active: boolean }
 type StockRecord = { product_id: string; location_id: string; quantity: number }
 type StockRow = StockRecord & { product?: ProductRecord }
-type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string }
+type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }
 type TransferItemRecord = { id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
@@ -427,7 +427,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     if (!client) return
     setLoading(true)
     const [transferResult, productResult, itemResult] = await Promise.all([
-      client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at').order('created_at', { ascending: false }).limit(50),
+      client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at, requested_by').order('created_at', { ascending: false }).limit(50),
       client.from('products').select('id, sku, name, unit, variant, active').eq('active', true).order('name'),
       client.from('stock_transfer_items').select('id, transfer_id, product_id, shipped_quantity, received_quantity, discrepancy_reason'),
     ])
@@ -569,8 +569,14 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     })
   }
 
+  const canManageDraft = (transfer: TransferRecord) => {
+    if (transfer.status !== 'DRAFT') return false
+    return profile.id === transfer.requested_by || profile.location_id === transfer.source_location_id || profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE'
+  }
+
   const renderDraftControls = (transfer: TransferRecord) => {
     if (transfer.status !== 'DRAFT') return <span className="muted-text">-</span>
+    if (!canManageDraft(transfer)) return <span className="muted-text">-</span>
     if (editingTransferId === transfer.id) {
       return <div style={{ display: 'grid', gap: 8, minWidth: 190 }}><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Produk<select value={draftEditor.productId} onChange={(event) => setDraftEditor((current) => ({ ...current, productId: event.target.value }))}>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Qty<input type="number" min="1" value={draftEditor.quantity} onChange={(event) => setDraftEditor((current) => ({ ...current, quantity: event.target.value }))} /></label><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Catatan<input value={draftEditor.note} onChange={(event) => setDraftEditor((current) => ({ ...current, note: event.target.value }))} placeholder="Opsional" /></label><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="text-button" type="button" disabled={saving} onClick={() => void updateDraftTransfer(transfer)}>Simpan</button><button className="text-button" type="button" disabled={saving} onClick={() => setEditingTransferId(null)}>Batal</button></div></div>
     }
@@ -578,9 +584,11 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   }
 
   const renderTransferAction = (transfer: TransferRecord) => {
-    if (transfer.status === 'DRAFT') return <span className="muted-text">Draft</span>
     const nextAction = actionFor(transfer)
     if (!nextAction) return <span className="muted-text">Menunggu tahap lanjut</span>
+    if (transfer.status === 'DRAFT') {
+      return <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{nextAction}</button>
+    }
     const buttonAction = nextAction === 'RECEIVED'
       ? <button className="text-button" type="button" disabled={saving} onClick={() => void receiveTransfer(transfer)}>{nextAction}</button>
       : <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{nextAction}</button>
