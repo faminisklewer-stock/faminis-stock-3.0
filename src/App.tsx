@@ -578,7 +578,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   }
 
   const renderTransferAction = (transfer: TransferRecord) => {
-    if (transfer.status === 'DRAFT') return <span className="muted-text">-</span>
+    if (transfer.status === 'DRAFT') return <span className="muted-text">Draft</span>
     const nextAction = actionFor(transfer)
     if (!nextAction) return <span className="muted-text">Menunggu tahap lanjut</span>
     const buttonAction = nextAction === 'RECEIVED'
