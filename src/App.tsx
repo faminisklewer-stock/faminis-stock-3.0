@@ -262,11 +262,27 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
   const canChooseLocation = profile.role === 'MASTER' || profile.role === 'OWNER'
 
   function addProduct(product: PosProduct) {
+    if (!product.id || !Number.isFinite(product.stock) || product.stock <= 0) {
+      setError('Produk ini tidak memiliki stok yang valid pada lokasi yang dipilih.')
+      return
+    }
     setError('')
     setCart((current) => {
       const existing = current.find((item) => item.id === product.id)
-      if (existing) return current.map((item) => item.id === product.id ? { ...item, quantity: Math.min(item.quantity + 1, product.stock) } : item)
-      return [...current, { ...product, quantity: 1, unitPrice: 0 }]
+      if (existing) {
+        return current.map((item) => item.id === product.id
+          ? { ...item, quantity: Math.min(item.quantity + 1, product.stock) }
+          : item)
+      }
+      return [...current, {
+        id: product.id,
+        sku: product.sku ?? '',
+        name: product.name ?? 'Produk tanpa nama',
+        unit: product.unit ?? 'pcs',
+        stock: product.stock,
+        quantity: 1,
+        unitPrice: 0,
+      }]
     })
   }
 
