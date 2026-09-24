@@ -555,7 +555,7 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
   .pos-page .cart-panel.cart-panel-popup { position: fixed; z-index: 40; top: 70px; right: 10px; bottom: calc(82px + env(safe-area-inset-bottom)); left: 10px; display: flex; width: auto; max-height: none; flex-direction: column; overflow: hidden; margin: 0; padding: 18px 16px 14px; border: var(--retro-line); border-radius: 16px; box-shadow: 5px 5px 0 var(--retro-ink); }
   .pos-page .cart-panel-popup .panel-heading { flex: 0 0 auto; margin-bottom: 12px; }
   .pos-page .cart-panel-popup .sale-type-picker { flex: 0 0 auto; margin-bottom: 12px; }
-  .pos-page .cart-panel-popup .cart-lines { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; flex: 0 0 auto; min-height: 0; overflow: visible; }
+  .pos-page .cart-panel-popup .cart-lines { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; flex: 0 0 auto; min-height: 0; overflow: visible; }
   .pos-page .cart-panel-popup .cart-line { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; min-width: 0; padding: 9px; }
   .pos-page .cart-panel-popup .cart-line > div:first-child { grid-column: 1 / -1; min-width: 0; }
   .pos-page .cart-panel-popup .cart-line strong { margin-bottom: 5px; font-size: 12px; }
