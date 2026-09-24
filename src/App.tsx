@@ -120,6 +120,9 @@ function App() {
     const client = supabase
     if (!client) return
     let mounted = true
+    const sessionTimeout = window.setTimeout(() => {
+      if (mounted) setSessionReady(true)
+    }, 8000)
     void client.auth.getSession().then(async ({ data }) => {
       if (!mounted) return
       if (data.session) {
@@ -131,12 +134,15 @@ function App() {
         else if (mounted) setProfileError('User tidak aktif. Hubungi administrator.')
       }
       setSessionReady(true)
-    })
+    }).catch((error: unknown) => {
+      console.error('Session check failed', error)
+      if (mounted) setSessionReady(true)
+    }).finally(() => window.clearTimeout(sessionTimeout))
     const { data: listener } = client.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession ? { user: { id: nextSession.user.id, email: nextSession.user.email } } : null)
       if (!nextSession) { setProfile(null); setProfileError('') }
     })
-    return () => { mounted = false; listener.subscription.unsubscribe() }
+    return () => { mounted = false; window.clearTimeout(sessionTimeout); listener.subscription.unsubscribe() }
   }, [])
 
   if (!sessionReady) return <div className="auth-state"><div className="brand-mark">F</div><p>Memeriksa sesi login...</p></div>
