@@ -446,3 +446,18 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
   .report-mode-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 4px; margin-bottom: 14px; }
   .report-mode-tab { width: 100%; min-width: 0; padding: 9px 6px; font-size: 10px; }
 }
+
+.module-page > .panel:has(.customer-form), .module-page > .panel:has(.settings-form) { max-width: 1040px; }
+.customer-form, .settings-form { max-width: 980px; gap: 18px; }
+.customer-form .two-col, .settings-form .two-col { grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 16px; }
+.customer-form label, .settings-form label { color: #53605a; font-size: 11px; font-weight: 800; }
+.customer-form input, .customer-form select, .customer-form textarea, .settings-form input, .settings-form select, .settings-form textarea { width: 100%; min-height: 42px; padding: 10px 12px; border: var(--retro-line); border-radius: 10px; background: var(--retro-white); color: var(--retro-ink); font-size: 13px; }
+.customer-form textarea { min-height: 92px; resize: vertical; }
+.customer-form .button, .settings-form .button { width: fit-content; min-width: 150px; }
+
+@media (max-width: 780px) {
+  .module-page > .panel:has(.customer-form), .module-page > .panel:has(.settings-form) { max-width: none; }
+  .customer-form, .settings-form { max-width: none; }
+  .customer-form .two-col, .settings-form .two-col { grid-template-columns: 1fr; gap: 14px; }
+  .customer-form .button, .settings-form .button { width: 100%; }
+}
