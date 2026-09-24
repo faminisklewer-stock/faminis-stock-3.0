@@ -1572,7 +1572,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const actionFor = (transfer: TransferRecord) => {
     if (transfer.status === 'DRAFT') return 'REQUESTED'
     if (transfer.status === 'REQUESTED' && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'APPROVED'
-    if (transfer.status === 'APPROVED' && (transfer.source_location_id === profile.location_id || profile.role === 'MASTER' || profile.role === 'WAREHOUSE')) return 'SHIPPED'
+    if (transfer.status === 'APPROVED' && (transfer.source_location_id === profile.location_id || (profile.location_id === null && (profile.role === 'MASTER' || profile.role === 'WAREHOUSE')))) return 'SHIPPED'
     if (transfer.status === 'SHIPPED' && transfer.destination_location_id === profile.location_id) return 'RECEIVED'
     if (transfer.status === 'RECEIVED' && (transfer.destination_location_id === profile.location_id || profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'COMPLETED'
     return null
