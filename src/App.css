@@ -145,6 +145,7 @@ input::placeholder, textarea::placeholder { color: #7b7068; opacity: 1; }
 .module-page label { display: grid; gap: 7px; color: #72675f; font-size: 11px; font-weight: 700; letter-spacing: .15px; }
 .module-page input, .module-page select, .module-page textarea { border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #4e413b; font-size: 12px; box-shadow: none; }
 .module-page input:focus, .module-page select:focus, .module-page textarea:focus { border-color: #b57d5d; box-shadow: 0 0 0 3px rgba(181, 125, 93, 0.08); }
+.transfer-product-search { width: 100%; min-height: 40px; padding: 9px 11px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #4e413b; font-size: 12px; }
 .module-page textarea { min-height: 82px; }
 .module-page .two-col { gap: 14px; }
 .module-page .table-panel { padding-bottom: 10px; }

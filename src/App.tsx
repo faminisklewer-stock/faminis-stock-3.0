@@ -1396,6 +1396,8 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
+  const [productQuery, setProductQuery] = useState('')
+  const [sourceStocks, setSourceStocks] = useState<Array<{ product_id: string; quantity: number }>>([])
   const [quantity, setQuantity] = useState('1')
   const [note, setNote] = useState('')
   const [receiptDrafts, setReceiptDrafts] = useState<Record<string, { quantity: string; note: string }>>({})
@@ -1446,6 +1448,45 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   useEffect(() => { void loadTransfers() }, [loadTransfers])
 
   useEffect(() => {
+    if (!client || !source) {
+      setSourceStocks([])
+      return
+    }
+    let mounted = true
+    void client.from('stocks').select('product_id, quantity').eq('location_id', source).then(({ data, error: stockError }) => {
+      if (!mounted) return
+      if (stockError) setError('Stok lokasi sumber tidak dapat dimuat.')
+      setSourceStocks((data ?? []) as Array<{ product_id: string; quantity: number }>)
+    })
+    return () => { mounted = false }
+  }, [client, source])
+
+  useEffect(() => {
+    const form = document.querySelector<HTMLFormElement>('.module-page .operation-grid form')
+    const productLabel = form?.querySelectorAll<HTMLLabelElement>('label')[2]
+    const select = productLabel?.querySelector<HTMLSelectElement>('select')
+    if (!productLabel || !select) return
+    const searchInput = document.createElement('input')
+    searchInput.className = 'transfer-product-search'
+    searchInput.type = 'search'
+    searchInput.placeholder = 'Cari SKU atau nama produk...'
+    searchInput.setAttribute('aria-label', 'Cari produk transfer')
+    searchInput.value = productQuery
+    searchInput.addEventListener('input', (event) => setProductQuery((event.target as HTMLInputElement).value))
+    productLabel.insertBefore(searchInput, select)
+    const normalizedQuery = productQuery.trim().toLowerCase()
+    products.forEach((product) => {
+      const option = Array.from(select.options).find((item) => item.value === product.id)
+      if (!option) return
+      const availableStock = Number(sourceStocks.find((stock) => stock.product_id === product.id)?.quantity ?? 0)
+      option.textContent = `${product.sku ?? ''} - ${product.name} (stok ${availableStock})`
+      option.disabled = availableStock <= 0
+      option.hidden = Boolean(normalizedQuery) && !`${product.sku ?? ''} ${product.name}`.toLowerCase().includes(normalizedQuery)
+    })
+    return () => searchInput.remove()
+  }, [productQuery, products, sourceStocks])
+
+  useEffect(() => {
     if (!client) return
     const channel = client.channel('transfer-live-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfers' }, () => {
@@ -1467,6 +1508,9 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     if (!client) return
     const amount = Number(quantity)
     if (!source || !destination || source === destination || !productId || !Number.isInteger(amount) || amount <= 0) { setError('Source, tujuan, produk, dan quantity wajib diisi.'); return }
+    const availableStock = Number(sourceStocks.find((stock) => stock.product_id === productId)?.quantity ?? 0)
+    if (availableStock <= 0) { setError('Produk ini tidak memiliki stok di lokasi sumber.'); return }
+    if (amount > availableStock) { setError(`Quantity transfer tidak boleh melebihi stok tersedia (${availableStock}).`); return }
     setSaving(true); setError(''); setMessage('')
     const { data: createdTransfer, error: createError } = await client.rpc('create_transfer', { p_source_location_id: source, p_destination_location_id: destination, p_items: [{ product_id: productId, quantity: amount }], p_notes: note.trim() || null })
     setSaving(false)
