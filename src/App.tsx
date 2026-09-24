@@ -70,7 +70,7 @@ const operationalNavItems: Array<{ label: string; icon: typeof LayoutDashboard }
 ]
 
 type DashboardData = {
-  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string }>
+  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; sale_type?: 'ECER' | 'GROSIR' }>
   transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
   products: Array<{ id: string; name: string }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
@@ -295,7 +295,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         purchasesResult,
         purchaseItemsResult,
       ] = await Promise.allSettled([
-        client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at').order('created_at', { ascending: false }).limit(100),
+        client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
         client.from('products').select('id, name').eq('active', true).order('name'),
         client.from('stocks').select('product_id, location_id, quantity'),
@@ -957,6 +957,7 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
   const [cart, setCart] = useState<CartItem[]>([])
   const [search, setSearch] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT'>('CASH')
+  const [saleType, setSaleType] = useState<'ECER' | 'GROSIR'>('ECER')
   const [paidAmount, setPaidAmount] = useState('')
   const [loading, setLoading] = useState(true)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
@@ -966,6 +967,28 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
 
   const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
+
+  useEffect(() => {
+    const toolbar = document.querySelector<HTMLElement>('.pos-page .pos-toolbar')
+    if (!toolbar) return
+    const picker = document.createElement('div')
+    picker.className = 'sale-type-picker'
+    picker.setAttribute('aria-label', 'Jenis penjualan')
+    const label = document.createElement('span')
+    label.textContent = 'Jenis penjualan'
+    picker.append(label)
+    for (const type of ['ECER', 'GROSIR'] as const) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = `sale-type-option ${saleType === type ? 'active' : ''}`
+      button.textContent = type === 'ECER' ? 'Ecer' : 'Grosir'
+      button.setAttribute('aria-pressed', String(saleType === type))
+      button.addEventListener('click', () => setSaleType(type))
+      picker.append(button)
+    }
+    toolbar.append(picker)
+    return () => picker.remove()
+  }, [saleType])
 
   useEffect(() => {
     if (!locationId && locations[0]?.id) setLocationId(locations[0].id)
@@ -1084,7 +1107,7 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     if (cart.some((item) => item.unitPrice <= 0)) { setError('Masukkan harga manual untuk setiap produk.'); return }
     if (!Number.isFinite(amount) || amount < total) { setError('Nominal pembayaran belum mencukupi.'); return }
     setCheckoutLoading(true); setError(''); setMessage('')
-    const { error: rpcError } = await client.rpc('record_sale', { p_location_id: locationId, p_items: cart.map((item) => ({ product_id: item.id, quantity: item.quantity, unit_price: item.unitPrice })), p_discount: 0, p_method: paymentMethod, p_paid_amount: amount, p_idempotency_key: crypto.randomUUID() })
+    const { error: rpcError } = await client.rpc('record_sale', { p_location_id: locationId, p_items: cart.map((item) => ({ product_id: item.id, quantity: item.quantity, unit_price: item.unitPrice })), p_discount: 0, p_method: paymentMethod, p_paid_amount: amount, p_idempotency_key: crypto.randomUUID(), p_sale_type: saleType })
     setCheckoutLoading(false)
     if (rpcError) { setError(rpcError.message.includes('INSUFFICIENT_STOCK') ? 'Stok tidak mencukupi.' : 'Transaksi gagal disimpan. Periksa koneksi dan coba lagi.'); return }
     setCart([]); setPaidAmount(''); setMessage('Transaksi berhasil disimpan ke Supabase.');
@@ -1508,7 +1531,7 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const isOperationalUser = profile.role !== 'MASTER'
   const [reportMode, setReportMode] = useState<'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'>('penjualan')
   const locationName = (id: string) => data.locations.find((item) => item.id === id)?.name ?? 'Tidak diketahui'
-  const transactions = data.transactions.filter((item) => location === 'all' || item.location_id === location)
+  const transactions = data.transactions.filter((item) => location === 'all' || item.location_id === location).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'}` }))
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
   const reportModes: Array<{ key: 'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'; label: string }> = isOperationalUser ? [

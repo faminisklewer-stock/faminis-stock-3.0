@@ -569,6 +569,14 @@ input::placeholder, textarea::placeholder,
 .operation-form input::placeholder, .operation-form textarea::placeholder,
 .cart-line input::placeholder { color: #7b7068; opacity: 1; }
 
+.sale-type-picker { display: inline-flex; align-items: center; gap: 6px; padding: 5px; border: var(--retro-line); border-radius: 12px; background: var(--retro-white); color: var(--retro-ink); font-size: 11px; font-weight: 800; }
+.sale-type-picker > span { padding: 0 6px; }
+.sale-type-option { min-height: 34px; padding: 7px 12px; border: 0; border-radius: 8px; background: transparent; color: #6a746d; font-size: 11px; font-weight: 800; }
+.sale-type-option.active { background: var(--retro-yellow); color: var(--retro-ink); box-shadow: 2px 2px 0 var(--retro-ink); }
+
 @media (max-width: 780px) {
   input::placeholder, textarea::placeholder { color: #6f655e; font-size: .95em; }
+  .sale-type-picker { width: 100%; justify-content: space-between; min-height: 46px; }
+  .sale-type-picker > span { flex: 1; }
+  .sale-type-option { min-width: 86px; min-height: 38px; }
 }
