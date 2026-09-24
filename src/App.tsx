@@ -67,9 +67,49 @@ const PRODUCT_CATEGORY_PREFIXES: Record<string, string> = {
   'Busana Pria': 'BSP',
 }
 
+const APPROVED_CATEGORY_NAMES = Object.keys(PRODUCT_CATEGORY_PREFIXES) as Array<keyof typeof PRODUCT_CATEGORY_PREFIXES>
+
+function normalizeCategoryName(name: string | null | undefined): string {
+  const value = (name ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
+  const aliasMap: Record<string, string> = {
+    mukena: 'Mukena',
+    sarung: 'Sarung',
+    sajadah: 'Sajadah',
+    daster: 'Daster',
+    'busana wanita': 'Busana Wanita',
+    'busanawanita': 'Busana Wanita',
+    'busana pria': 'Busana Pria',
+    'busanapria': 'Busana Pria',
+  }
+  return aliasMap[value] ?? APPROVED_CATEGORY_NAMES.find((approved) => normalizeCategoryName(approved).toLowerCase() === value) ?? ''
+}
+
 function getCategoryPrefix(categoryName: string | null | undefined) {
-  if (!categoryName) return ''
-  return PRODUCT_CATEGORY_PREFIXES[categoryName] ?? categoryName.replace(/\s+/g, '').slice(0, 3).toUpperCase()
+  const canonical = normalizeCategoryName(categoryName)
+  if (!canonical) return ''
+  return PRODUCT_CATEGORY_PREFIXES[canonical] ?? ''
+}
+
+function isApprovedSku(sku: string | null | undefined) {
+  const normalizedSku = (sku ?? '').trim().toUpperCase()
+  if (!normalizedSku) return false
+  const prefix = normalizedSku.split('-')[0]
+  return Object.values(PRODUCT_CATEGORY_PREFIXES).includes(prefix)
+}
+
+function filterApprovedProducts<T extends { sku?: string | null }>(products: T[]) {
+  return products.filter((product) => isApprovedSku(product.sku ?? null))
+}
+
+function getApprovedCategoryList(categories: CategoryRecord[]) {
+  const normalized = categories
+    .map((category) => {
+      const canonicalName = normalizeCategoryName(category.name)
+      return canonicalName ? { ...category, name: canonicalName } : null
+    })
+    .filter((category): category is CategoryRecord => Boolean(category))
+
+  return Array.from(new Map(normalized.map((category) => [category.id, category])).values())
 }
 
 function isValidCategorySku(sku: string, categoryName: string | null | undefined) {
@@ -894,7 +934,10 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     let mounted = true
     void client.from('categories').select('id, name, active').eq('active', true).order('name').then(({ data, error }) => {
       if (!mounted) return
-      if (!error) setCategories((data ?? []) as CategoryRecord[])
+      if (!error) {
+        const approvedCategories = getApprovedCategoryList((data ?? []) as CategoryRecord[])
+        setCategories(approvedCategories)
+      }
     })
     return () => { mounted = false }
   }, [client])
@@ -912,7 +955,8 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
       if (stockError) setError('Stok tidak dapat dimuat dari Supabase.')
       const stockMap = new Map((stocks ?? []).map((stock) => [stock.product_id, stock.quantity]))
       const categoryNameMap = new Map((categories ?? []).map((category) => [category.id, category.name]))
-      setProducts((data ?? []).map((product) => ({ ...product, stock: stockMap.get(product.id) ?? 0, category_name: categoryNameMap.get(product.category_id ?? '') ?? null })))
+      const approvedProducts = filterApprovedProducts(data ?? [])
+      setProducts(approvedProducts.map((product) => ({ ...product, stock: stockMap.get(product.id) ?? 0, category_name: categoryNameMap.get(product.category_id ?? '') ?? null })))
       setLoading(false)
     })
     return () => { mounted = false }
@@ -987,9 +1031,12 @@ function ProductsView({ profile }: { profile: Profile }) {
     if (!client) return
     const { data, error: categoryError } = await client.from('categories').select('id, name, active').eq('active', true).order('name')
     if (!categoryError) {
-      const nextCategories = (data ?? []) as CategoryRecord[]
+      const nextCategories = getApprovedCategoryList((data ?? []) as CategoryRecord[])
       setCategories(nextCategories)
-      if (!selectedCategoryId && nextCategories[0]) setSelectedCategoryId(nextCategories[0].id)
+      setSelectedCategoryId((current) => {
+        if (current && nextCategories.some((category) => category.id === current)) return current
+        return nextCategories[0]?.id ?? ''
+      })
     }
   }
 
@@ -998,7 +1045,7 @@ function ProductsView({ profile }: { profile: Profile }) {
     setLoading(true)
     const { data, error: loadError } = await client.from('products').select('id, sku, name, unit, variant, active, category_id').order('name')
     if (loadError) setError('Produk tidak dapat dimuat dari Supabase.')
-    else setProducts((data ?? []) as ProductRecord[])
+    else setProducts(filterApprovedProducts((data ?? []) as ProductRecord[]))
     setLoading(false)
   }
 
@@ -1056,12 +1103,12 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     if (!client || !locationId) return
     setLoading(true)
     const [productResult, stockResult] = await Promise.all([
-      client.from('products').select('id, sku, name, unit, variant, active').eq('active', true).order('name'),
+      client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
       client.from('stocks').select('product_id, location_id, quantity').eq('location_id', locationId),
     ])
     if (productResult.error || stockResult.error) setError('Stok tidak dapat dimuat dari Supabase.')
     else {
-      setProducts((productResult.data ?? []) as ProductRecord[])
+      setProducts(filterApprovedProducts((productResult.data ?? []) as ProductRecord[]))
       setStocks((stockResult.data ?? []) as StockRecord[])
     }
     setLoading(false)
@@ -1133,14 +1180,14 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     setLoading(true)
     const [transferResult, productResult, itemResult] = await Promise.all([
       client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at, requested_by').order('created_at', { ascending: false }).limit(50),
-      client.from('products').select('id, sku, name, unit, variant, active').eq('active', true).order('name'),
+      client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
       client.from('stock_transfer_items').select('id, transfer_id, product_id, shipped_quantity, received_quantity, discrepancy_reason'),
     ])
     if (transferResult.error || productResult.error || itemResult.error) setError('Data transfer tidak dapat dimuat dari Supabase.')
     else {
       const nextItems = (itemResult.data ?? []) as TransferItemRecord[]
       setTransfers((transferResult.data ?? []) as TransferRecord[])
-      setProducts((productResult.data ?? []) as ProductRecord[])
+      setProducts(filterApprovedProducts((productResult.data ?? []) as ProductRecord[]))
       setTransferItems(nextItems)
       setReceiptDrafts((current) => {
         const nextDrafts = { ...current }
@@ -1346,7 +1393,7 @@ function PurchasesView({ profile, locations }: { profile: Profile; locations: Ar
 
   useEffect(() => {
     if (!client) return
-    void client.from('products').select('id, sku, name').eq('active', true).order('name').then(({ data }) => setProducts(data ?? []))
+    void client.from('products').select('id, sku, name, category_id').eq('active', true).order('name').then(({ data }) => setProducts(filterApprovedProducts((data ?? []) as Array<{ id: string; sku: string; name: string; category_id?: string | null }>)))
   }, [client])
   useEffect(() => { if (!locationId && locations[0]?.id) setLocationId(locations[0].id) }, [locationId, locations])
   const selectedProduct = products.find((product) => product.id === productId)
