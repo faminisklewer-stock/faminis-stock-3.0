@@ -24,6 +24,24 @@ import {
 import './App.css'
 import { supabase } from './lib/supabase'
 import type { Profile } from './lib/supabase'
+import {
+  filterApprovedProducts,
+  getApprovedCategoryList,
+  getCategoryPrefix,
+  getProductCategoryId,
+  isValidCategorySku,
+} from './lib/catalog'
+import type {
+  CartItem,
+  CategoryRecord,
+  LocationOption,
+  PosProduct,
+  ProductRecord,
+  StockRecord,
+  StockRow,
+  TransferItemRecord,
+  TransferRecord,
+} from './lib/catalog'
 
 const masterNavItems: Array<{ label: string; icon: typeof LayoutDashboard; badge?: string }> = [
   { label: 'Ringkasan', icon: LayoutDashboard },
@@ -54,100 +72,7 @@ type DashboardData = {
   purchaseItems: Array<{ id: string; receipt_id: string; product_id: string; quantity: number; purchase_cost: number | null }>
 }
 
-type PosProduct = { id: string; sku: string; name: string; unit: string; stock: number; category_id?: string | null; category_name?: string | null }
-type CartItem = PosProduct & { quantity: number; unitPrice: number }
-type LocationOption = { id: string; name: string }
-type CategoryRecord = { id: string; name: string; active: boolean }
-type ProductRecord = { id: string; sku: string; name: string; unit: string; variant: string | null; active: boolean; category_id: string | null; category_name?: string | null }
-type StockRecord = { product_id: string; location_id: string; quantity: number }
-type StockRow = StockRecord & { product?: ProductRecord }
-type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }
-type TransferItemRecord = { id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }
 type NotificationRecord = { id: string; action: string; description: string | null; created_at: string }
-
-const PRODUCT_CATEGORY_PREFIXES: Record<string, string> = {
-  Mukena: 'MKN',
-  Sarung: 'SRG',
-  Sajadah: 'SJD',
-  Daster: 'DST',
-  'Busana Wanita': 'BSW',
-  'Busana Pria': 'BSP',
-}
-
-const APPROVED_CATEGORY_NAMES = Object.keys(PRODUCT_CATEGORY_PREFIXES) as Array<keyof typeof PRODUCT_CATEGORY_PREFIXES>
-
-function normalizeCategoryName(name: string | null | undefined): string {
-  const value = (name ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ')
-  const aliasMap: Record<string, string> = {
-    mukena: 'Mukena',
-    sarung: 'Sarung',
-    sajadah: 'Sajadah',
-    daster: 'Daster',
-    'busana wanita': 'Busana Wanita',
-    'busanawanita': 'Busana Wanita',
-    'busana pria': 'Busana Pria',
-    'busanapria': 'Busana Pria',
-  }
-  return aliasMap[value] ?? APPROVED_CATEGORY_NAMES.find((approved) => normalizeCategoryName(approved).toLowerCase() === value) ?? ''
-}
-
-function getCategoryPrefix(categoryName: string | null | undefined) {
-  const canonical = normalizeCategoryName(categoryName)
-  if (!canonical) return ''
-  return PRODUCT_CATEGORY_PREFIXES[canonical] ?? ''
-}
-
-function isApprovedSku(sku: string | null | undefined) {
-  const normalizedSku = (sku ?? '').trim().toUpperCase()
-  if (!normalizedSku) return false
-  const prefix = normalizedSku.split('-')[0]
-  return Object.values(PRODUCT_CATEGORY_PREFIXES).includes(prefix)
-}
-
-function filterApprovedProducts<T extends { sku?: string | null }>(products: T[]) {
-  return products.filter((product) => isApprovedSku(product.sku ?? null))
-}
-
-function getProductCategoryId(product: { category_id?: string | null; sku?: string | null; name?: string | null }, categories: CategoryRecord[]) {
-  const canonicalCategoryId = product.category_id && categories.some((category) => category.id === product.category_id)
-    ? product.category_id
-    : ''
-
-  if (canonicalCategoryId) return canonicalCategoryId
-
-  const skuPrefix = (product.sku ?? '').trim().toUpperCase().split('-')[0]
-  if (skuPrefix) {
-    const resolvedCategoryName = APPROVED_CATEGORY_NAMES.find((categoryName) => PRODUCT_CATEGORY_PREFIXES[categoryName] === skuPrefix)
-    if (resolvedCategoryName) {
-      return categories.find((category) => normalizeCategoryName(category.name) === resolvedCategoryName)?.id ?? ''
-    }
-  }
-
-  const normalizedProductName = normalizeCategoryName(product.name)
-  if (normalizedProductName) {
-    return categories.find((category) => normalizeCategoryName(category.name) === normalizedProductName)?.id ?? ''
-  }
-
-  return ''
-}
-
-function getApprovedCategoryList(categories: CategoryRecord[]) {
-  const normalized = categories
-    .map((category) => {
-      const canonicalName = normalizeCategoryName(category.name)
-      return canonicalName ? { ...category, name: canonicalName } : null
-    })
-    .filter((category): category is CategoryRecord => Boolean(category))
-
-  return Array.from(new Map(normalized.map((category) => [category.id, category])).values())
-}
-
-function isValidCategorySku(sku: string, categoryName: string | null | undefined) {
-  const normalizedSku = sku.trim().toUpperCase()
-  const prefix = getCategoryPrefix(categoryName)
-  if (!normalizedSku || !prefix) return true
-  return new RegExp(`^${prefix}-[A-Z0-9]+$`).test(normalizedSku)
-}
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -1161,7 +1086,7 @@ function ProductsView({ profile }: { profile: Profile }) {
   const client = supabase
   const canManage = profile.role === 'MASTER'
 
-  async function loadCategories() {
+  const loadCategories = useCallback(async () => {
     if (!client) return
     const { data, error: categoryError } = await client.from('categories').select('id, name, active').eq('active', true).order('name')
     if (!categoryError) {
@@ -1172,18 +1097,18 @@ function ProductsView({ profile }: { profile: Profile }) {
         return nextCategories[0]?.id ?? ''
       })
     }
-  }
+  }, [client])
 
-  async function loadProducts() {
+  const loadProducts = useCallback(async () => {
     if (!client) return
     setLoading(true)
     const { data, error: loadError } = await client.from('products').select('id, sku, name, unit, variant, active, category_id').order('name')
     if (loadError) setError('Produk tidak dapat dimuat dari Supabase.')
     else setProducts(filterApprovedProducts((data ?? []) as ProductRecord[]))
     setLoading(false)
-  }
+  }, [client])
 
-  useEffect(() => { void loadCategories(); void loadProducts() }, [client])
+  useEffect(() => { void loadCategories(); void loadProducts() }, [loadCategories, loadProducts])
 
   async function saveProduct(event: FormEvent) {
     event.preventDefault()
@@ -1236,7 +1161,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
   const canAdjust = profile.role === 'MASTER' || profile.role === 'WAREHOUSE'
   const allowedLocations = profile.role === 'MASTER' || profile.role === 'OWNER' ? locations : locations.filter((location) => location.id === profile.location_id)
 
-  async function loadStock() {
+  const loadStock = useCallback(async () => {
     if (!client || !locationId) return
     setLoading(true)
     const [productResult, stockResult] = await Promise.all([
@@ -1249,7 +1174,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
       setStocks((stockResult.data ?? []) as StockRecord[])
     }
     setLoading(false)
-  }
+  }, [client, locationId])
 
   useEffect(() => {
     if (!client) return
@@ -1265,7 +1190,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     })
   }, [client])
 
-  useEffect(() => { void loadStock() }, [client, locationId])
+  useEffect(() => { void loadStock() }, [loadStock])
   useEffect(() => { if (!locationId && allowedLocations[0]?.id) setLocationId(allowedLocations[0].id) }, [locationId, allowedLocations])
 
   async function adjustStock(event: FormEvent) {
