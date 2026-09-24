@@ -42,6 +42,7 @@ import type {
   TransferItemRecord,
   TransferRecord,
 } from './lib/catalog'
+import { translateVisibleUi } from './lib/uiTranslations'
 
 const masterNavItems: Array<{ label: string; icon: typeof LayoutDashboard; badge?: string }> = [
   { label: 'Ringkasan', icon: LayoutDashboard },
@@ -102,6 +103,14 @@ function formatNumber(value: number) {
 }
 
 function App() {
+  useEffect(() => {
+    const applyTranslations = () => translateVisibleUi(document.body)
+    applyTranslations()
+    const observer = new MutationObserver(applyTranslations)
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'aria-label', 'title'] })
+    return () => observer.disconnect()
+  }, [])
+
   const [sessionReady, setSessionReady] = useState(!supabase)
   const [session, setSession] = useState<{ user: { id: string; email?: string } } | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -179,7 +188,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const isMasterUser = profile.role === 'MASTER'
   const [active, setActive] = useState(isMasterUser ? 'Ringkasan' : 'Kasir')
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
-  const [location, setLocation] = useState('All locations')
+  const [location, setLocation] = useState('Semua lokasi')
   const visibleNavItems = isMasterUser ? masterNavItems : operationalNavItems
   const mobilePrimaryItems = visibleNavItems.slice(0, isMasterUser ? 4 : visibleNavItems.length)
   const mobileMoreItems = isMasterUser
@@ -342,7 +351,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const revenue = visibleTransactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const itemsSold = visibleMovements.filter((item) => item.movement_type === 'SALE').reduce((sum, item) => sum + Math.abs(item.quantity), 0)
   const lowStock = visibleStock.filter((item) => item.quantity <= 5).length
-  const overviewLocations = [{ id: 'all', name: 'All locations' }, ...dashboard.locations]
+  const overviewLocations = [{ id: 'all', name: 'Semua lokasi' }, ...dashboard.locations]
   const locationRevenue = overviewLocations
     .filter((item) => item.id !== 'all')
     .map((item) => {
@@ -374,14 +383,14 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
 
   function getOperationalReportData(scope: 'all' | 'selected' = 'all') {
     const allLocationIds = dashboard.locations.map((item) => item.id)
-    const selectedScopeLocationIds = location === 'All locations'
+    const selectedScopeLocationIds = location === 'Semua lokasi'
       ? allLocationIds
       : [dashboard.locations.find((item) => item.name === location)?.id].filter(Boolean) as string[]
     const scopeLocationIds = (profile.role === 'MASTER' || profile.role === 'OWNER')
       ? (scope === 'selected' ? selectedScopeLocationIds : allLocationIds)
       : [profile.location_id].filter(Boolean) as string[]
     const productName = (productId: string) => dashboard.products.find((product) => product.id === productId)?.name ?? 'Produk'
-    const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Unknown'
+    const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Tidak diketahui'
     const formatTransferId = (id: string) => id.replace(/-/g, '').slice(0, 8).toUpperCase()
 
     const salesRows = dashboard.transactions
@@ -1483,7 +1492,7 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const [location, setLocation] = useState('all')
   const isOperationalUser = profile.role !== 'MASTER'
   const [reportMode, setReportMode] = useState<'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'>('penjualan')
-  const locationName = (id: string) => data.locations.find((item) => item.id === id)?.name ?? 'Unknown'
+  const locationName = (id: string) => data.locations.find((item) => item.id === id)?.name ?? 'Tidak diketahui'
   const transactions = data.transactions.filter((item) => location === 'all' || item.location_id === location)
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
