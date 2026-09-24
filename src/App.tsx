@@ -985,6 +985,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
   const [reason, setReason] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const client = supabase
@@ -1021,6 +1022,17 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     setMessage('Adjustment stok berhasil disimpan.'); setSelected(null); setPhysical(''); setReason(''); void loadStock(); window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
+  async function resetLocationStock() {
+    if (!client || !locationId || !canAdjust) return
+    setResetting(true); setError(''); setMessage('')
+    const { error: resetError } = await client.rpc('reset_location_stock', { p_location_id: locationId })
+    setResetting(false)
+    if (resetError) { setError(resetError.message); return }
+    setMessage('Semua stok di lokasi ini berhasil diatur ke 0.')
+    void loadStock()
+    window.dispatchEvent(new Event('faminis:data-changed'))
+  }
+
   const rows: StockRow[] = products
     .map((product) => {
       const stockValue = stocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
@@ -1033,7 +1045,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     })
     .filter((row) => `${row.product?.sku ?? ''} ${row.product?.name ?? ''}`.toLowerCase().includes(query.toLowerCase()))
 
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={allowedLocations.length < 2}>{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}<div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th><th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={row.product_id}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td><td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">Belum ada saldo stok di lokasi ini.</div>}</div>}</div>{selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}</section>
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={allowedLocations.length < 2}>{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div>{canAdjust && <button className="button button-secondary" type="button" disabled={resetting} onClick={() => { void resetLocationStock() }}>{resetting ? 'Mereset...' : 'Reset stok ke 0'}</button>}</div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}<div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th><th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={row.product_id}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td><td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">Belum ada saldo stok di lokasi ini.</div>}</div>}</div>{selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}</section>
 }
 
 function TransfersView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
