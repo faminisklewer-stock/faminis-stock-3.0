@@ -913,12 +913,12 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           <button className={`nav-item ${active === 'Pelanggan' ? 'active' : ''}`} onClick={() => setActive('Pelanggan')}><Users size={18} /><span>Pelanggan</span></button>
           <button className={`nav-item ${active === 'Akses tim' ? 'active' : ''}`} onClick={() => setActive('Akses tim')}><UserRound size={18} /><span>Akses tim</span></button>
         </nav>
-        <div className="sidebar-bottom"><button className="nav-item"><Settings size={18} /><span>Pengaturan</span></button><div className="sync-card"><div className="sync-line"><span className="live-dot"></span><strong>Sesi aman</strong></div><span>Terhubung ke Supabase</span></div><button className="profile-row" onClick={onLogout}><div className="avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div><span><strong>{profile.full_name}</strong><small>{profile.role}</small></span><ChevronDown size={15} /></button></div>
+        <div className="sidebar-bottom"><button className={`nav-item ${active === 'Pengaturan' ? 'active' : ''}`} onClick={() => setActive('Pengaturan')}><Settings size={18} /><span>Pengaturan</span></button><div className="sync-card"><div className="sync-line"><span className="live-dot"></span><strong>Sesi aman</strong></div><span>Terhubung ke Supabase</span></div><button className="profile-row" onClick={onLogout}><div className="avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div><span><strong>{profile.full_name}</strong><small>{profile.role}</small></span><ChevronDown size={15} /></button></div>
       </aside>
       <main className="main-content">
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Pelanggan' ? <CustomersView /> : active === 'Akses tim' ? <TeamAccessView profile={profile} /> : active === 'Pengaturan' ? <SettingsView /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
           <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'} <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
@@ -1462,36 +1462,210 @@ function PurchasesView({ profile, locations }: { profile: Profile; locations: Ar
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PURCHASES</p><h1>Receive stock</h1><p className="subtitle">Catat barang masuk melalui transaksi database atomic.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><div className="panel purchase-form"><label>Supplier<input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Nama supplier" /></label><label>Product<input value={selectedProduct ? `${selectedProduct.sku} - ${selectedProduct.name}` : sku} onChange={(event) => { setSku(event.target.value); setProductId('') }} placeholder="Cari SKU atau nama produk" />{sku && !selectedProduct && <div className="suggestions">{matches.map((product) => <button key={product.id} onClick={() => { setProductId(product.id); setSku(product.sku) }}>{product.sku} - {product.name}</button>)}</div>}</label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" onClick={() => void savePurchase()} disabled={loading}>{loading ? 'Saving...' : 'Save purchase'}</button></div></section>
 }
 
-function CustomersView() {
-  const customers = [
-    { name: 'Konsumen Umum', segment: 'Retail', lastOrder: '2 hari lalu', lifetime: 'Rp 1.200.000' },
-    { name: 'Mitra Reseller', segment: 'Reseller', lastOrder: '5 hari lalu', lifetime: 'Rp 3.450.000' },
-    { name: 'Toko Keluarga', segment: 'B2B', lastOrder: 'Hari ini', lifetime: 'Rp 2.780.000' },
-  ]
-
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">CUSTOMERS</p><h1>Pelanggan</h1><p className="subtitle">Kelola daftar pelanggan dan historis pembelian.</p></div></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar pelanggan</h2><p>{customers.length} pelanggan terdaftar</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Segmen</th><th>Order terakhir</th><th>Lifetime value</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.name}><td><strong>{customer.name}</strong></td><td>{customer.segment}</td><td>{customer.lastOrder}</td><td>{customer.lifetime}</td></tr>)}</tbody></table></div></div></section>
+type CustomerRecord = {
+  id: string
+  full_name: string
+  segment: string
+  phone: string | null
+  email: string | null
+  notes: string | null
+  active: boolean
+  created_at?: string
 }
 
-function TeamAccessView({ profile }: { profile: Profile }) {
-  const members = [
-    { name: profile.full_name, role: profile.role, location: 'Semua lokasi', status: 'Aktif' },
-    { name: 'Ayu Fitri', role: 'WAREHOUSE', location: 'Gudang', status: 'Aktif' },
-    { name: 'Rizal Maulana', role: 'LIVE', location: 'Live', status: 'Aktif' },
-    { name: 'Nisa Rahma', role: 'RUKO', location: 'Ruko 1', status: 'Menunggu' },
-  ]
-
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">TEAM ACCESS</p><h1>Akses tim</h1><p className="subtitle">Atur akses role dan lokasi tiap anggota tim.</p></div></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar akses</h2><p>{members.length} anggota</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Role</th><th>Lokasi</th><th>Status</th></tr></thead><tbody>{members.map((member) => <tr key={member.name}><td><strong>{member.name}</strong></td><td>{member.role}</td><td>{member.location}</td><td>{member.status}</td></tr>)}</tbody></table></div></div></section>
+type TeamMemberRecord = {
+  id: string
+  full_name: string
+  role: Profile['role']
+  location_id: string | null
+  active: boolean
 }
 
-function SettingsView() {
-  const settings = [
-    { label: 'Low stock threshold', value: '5 pcs' },
-    { label: 'Default unit', value: 'pcs' },
-    { label: 'Currency', value: 'IDR' },
-    { label: 'Alamat toko', value: 'Jl. Raya Barokah No. 12' },
-  ]
+const DEFAULT_SETTINGS = {
+  low_stock_threshold: '5',
+  default_unit: 'pcs',
+  currency: 'IDR',
+  store_address: 'Jl. Raya Barokah No. 12',
+} as const
 
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">SETTINGS</p><h1>Pengaturan</h1><p className="subtitle">Konfigurasi dasar operasional toko.</p></div></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Konfigurasi toko</h2><p>{settings.length} pengaturan aktif</p></div></div><div className="table-wrap"><table><thead><tr><th>Pengaturan</th><th>Nilai</th></tr></thead><tbody>{settings.map((setting) => <tr key={setting.label}><td>{setting.label}</td><td><strong>{setting.value}</strong></td></tr>)}</tbody></table></div></div></section>
+function CustomersView({ profile }: { profile: Profile }) {
+  const client = supabase
+  const canManageCustomers = profile.role === 'MASTER' || profile.role === 'WAREHOUSE'
+  const [customers, setCustomers] = useState<Array<CustomerRecord>>([])
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState({ id: '', full_name: '', segment: 'Retail', phone: '', email: '', notes: '', active: true })
+
+  const loadCustomers = useCallback(async () => {
+    if (!client) return
+    const { data, error: fetchError } = await client.from('customers').select('id, full_name, segment, phone, email, notes, active, created_at').order('full_name')
+    if (fetchError) setError(`Data pelanggan tidak dapat dibaca: ${fetchError.message}`)
+    else setCustomers((data ?? []) as Array<CustomerRecord>)
+  }, [client])
+
+  useEffect(() => {
+    void loadCustomers()
+  }, [loadCustomers])
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!client || !canManageCustomers) return
+    if (!form.full_name.trim()) {
+      setError('Nama pelanggan wajib diisi.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setMessage('')
+
+    const payload = {
+      full_name: form.full_name.trim(),
+      segment: form.segment,
+      phone: form.phone.trim() || null,
+      email: form.email.trim() || null,
+      notes: form.notes.trim() || null,
+      active: form.active,
+      created_by: profile.id,
+      updated_at: new Date().toISOString(),
+    }
+
+    const request = form.id
+      ? client.from('customers').update(payload).eq('id', form.id)
+      : client.from('customers').insert(payload)
+
+    const { error: saveError } = await request
+    setLoading(false)
+
+    if (saveError) {
+      setError(`Data pelanggan gagal disimpan: ${saveError.message}`)
+      return
+    }
+
+    setMessage(form.id ? 'Data pelanggan berhasil diperbarui.' : 'Pelanggan baru berhasil ditambahkan.')
+    setForm({ id: '', full_name: '', segment: 'Retail', phone: '', email: '', notes: '', active: true })
+    void loadCustomers()
+  }
+
+  async function handleDelete(id: string) {
+    if (!client || !canManageCustomers) return
+    const { error: deleteError } = await client.from('customers').delete().eq('id', id)
+    if (deleteError) {
+      setError(`Pelanggan gagal dihapus: ${deleteError.message}`)
+      return
+    }
+    setMessage('Pelanggan berhasil dihapus.')
+    void loadCustomers()
+  }
+
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">CUSTOMERS</p><h1>Pelanggan</h1><p className="subtitle">Kelola daftar pelanggan dari Supabase.</p></div></div>{canManageCustomers ? <div className="panel"><div className="panel-heading"><div><h2>{form.id ? 'Edit pelanggan' : 'Tambah pelanggan baru'}</h2><p>Hanya MASTER atau WAREHOUSE yang dapat mengelola data pelanggan.</p></div></div><form className="customer-form" onSubmit={handleSubmit}><div className="two-col"><label>Nama lengkap<input value={form.full_name} onChange={(event) => setForm((current) => ({ ...current, full_name: event.target.value }))} placeholder="Nama pelanggan" /></label><label>Segmen<select value={form.segment} onChange={(event) => setForm((current) => ({ ...current, segment: event.target.value }))}><option value="Retail">Retail</option><option value="Reseller">Reseller</option><option value="B2B">B2B</option><option value="UMKM">UMKM</option></select></label></div><div className="two-col"><label>Telepon<input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="08xxxxxxxxxx" /></label><label>Email<input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="nama@email.com" /></label></div><label>Catatan<textarea rows={3} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Catatan pelanggan, preferensi, atau alur pembayaran" /></label><label className="checkbox-inline"><input type="checkbox" checked={form.active} onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))} /> Aktif</label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<div className="inline-actions"><button className="button button-primary" type="submit" disabled={loading}>{loading ? 'Menyimpan...' : form.id ? 'Simpan perubahan' : 'Tambah pelanggan'}</button>{form.id && <button type="button" className="button button-secondary" onClick={() => setForm({ id: '', full_name: '', segment: 'Retail', phone: '', email: '', notes: '', active: true })}>Batal</button>}</div></form></div> : <div className="panel"><div className="panel-heading"><div><h2>Mode baca</h2><p>Hanya MASTER atau WAREHOUSE yang dapat mengedit pelanggan.</p></div></div></div>}<div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar pelanggan</h2><p>{customers.length} pelanggan terdaftar</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Segmen</th><th>Telepon</th><th>Email</th><th>Status</th>{canManageCustomers && <th>Aksi</th>}</tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}><td><strong>{customer.full_name}</strong>{customer.notes && <div className="muted-text">{customer.notes}</div>}</td><td>{customer.segment}</td><td>{customer.phone ?? '-'}</td><td>{customer.email ?? '-'}</td><td><span className={`status ${customer.active ? 'positive' : 'negative'}`}><i></i>{customer.active ? 'Aktif' : 'Nonaktif'}</span></td>{canManageCustomers && <td><div className="inline-actions compact"><button type="button" className="text-button" onClick={() => setForm({ id: customer.id, full_name: customer.full_name, segment: customer.segment, phone: customer.phone ?? '', email: customer.email ?? '', notes: customer.notes ?? '', active: customer.active })}>Edit</button><button type="button" className="text-button danger" onClick={() => void handleDelete(customer.id)}>Hapus</button></div></td>}</tr>)}</tbody></table></div></div></section>
+}
+
+function TeamAccessView({ profile, locations }: { profile: Profile; locations: Array<{ id: string; name: string }> }) {
+  const client = supabase
+  const canManageTeam = profile.role === 'MASTER'
+  const [members, setMembers] = useState<Array<TeamMemberRecord>>([])
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  const loadMembers = useCallback(async () => {
+    if (!client) return
+    const { data, error: fetchError } = await client.from('profiles').select('id, full_name, role, location_id, active').order('full_name')
+    if (fetchError) setError(`Data akses tim tidak dapat dibaca: ${fetchError.message}`)
+    else setMembers((data ?? []) as Array<TeamMemberRecord>)
+  }, [client])
+
+  useEffect(() => {
+    void loadMembers()
+  }, [loadMembers])
+
+  async function updateMember(member: TeamMemberRecord) {
+    if (!client || !canManageTeam) return
+    const { error: updateError } = await client.from('profiles').update({
+      full_name: member.full_name.trim(),
+      role: member.role,
+      location_id: member.location_id || null,
+      active: member.active,
+      updated_at: new Date().toISOString(),
+    }).eq('id', member.id)
+
+    if (updateError) {
+      setError(`Perubahan akses tim gagal disimpan: ${updateError.message}`)
+      return
+    }
+
+    setMessage('Perubahan akses tim berhasil disimpan.')
+    void loadMembers()
+  }
+
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">TEAM ACCESS</p><h1>Akses tim</h1><p className="subtitle">Kelola role, lokasi, dan status pengguna dari Supabase.</p></div></div>{!canManageTeam ? <div className="panel"><div className="panel-heading"><div><h2>Mode baca</h2><p>Hanya MASTER yang dapat mengedit akses tim.</p></div></div></div> : null}{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar akses</h2><p>{members.length} anggota</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Role</th><th>Lokasi</th><th>Status</th>{canManageTeam && <th>Aksi</th>}</tr></thead><tbody>{members.map((member) => <tr key={member.id}><td><strong>{member.full_name}</strong></td><td>{canManageTeam ? <select value={member.role} onChange={(event) => setMembers((current) => current.map((item) => item.id === member.id ? { ...item, role: event.target.value as Profile['role'] } : item))}><option value="MASTER">MASTER</option><option value="OWNER">OWNER</option><option value="WAREHOUSE">WAREHOUSE</option><option value="LIVE">LIVE</option><option value="RUKO">RUKO</option></select> : member.role}</td><td>{canManageTeam ? <select value={member.location_id ?? ''} onChange={(event) => setMembers((current) => current.map((item) => item.id === member.id ? { ...item, location_id: event.target.value || null } : item))}><option value="">Semua lokasi</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select> : (locations.find((location) => location.id === member.location_id)?.name ?? 'Semua lokasi')}</td><td>{canManageTeam ? <select value={member.active ? 'Aktif' : 'Nonaktif'} onChange={(event) => setMembers((current) => current.map((item) => item.id === member.id ? { ...item, active: event.target.value === 'Aktif' } : item))}><option value="Aktif">Aktif</option><option value="Nonaktif">Nonaktif</option></select> : (member.active ? 'Aktif' : 'Nonaktif')}</td>{canManageTeam && <td><button type="button" className="button button-primary" onClick={() => void updateMember(member)}>Simpan</button></td>}</tr>)}</tbody></table></div></div></section>
+}
+
+function SettingsView({ profile }: { profile: Profile }) {
+  const client = supabase
+  const canManageSettings = profile.role === 'MASTER'
+  const [form, setForm] = useState<Record<string, string>>(DEFAULT_SETTINGS)
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const loadSettings = useCallback(async () => {
+    if (!client) return
+    const { data, error: fetchError } = await client.from('settings').select('key, value')
+    if (fetchError) {
+      setError(`Pengaturan tidak dapat dibaca: ${fetchError.message}`)
+      return
+    }
+
+    const next: Record<string, string> = { ...DEFAULT_SETTINGS }
+    for (const row of data ?? []) {
+      const key = String((row as { key?: string }).key ?? '')
+      if (!key) continue
+      const value = row.value
+      if (typeof value === 'number' || typeof value === 'string') next[key] = String(value)
+    }
+    setForm(next)
+  }, [client])
+
+  useEffect(() => {
+    void loadSettings()
+  }, [loadSettings])
+
+  async function handleSave(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!client || !canManageSettings) return
+
+    setLoading(true)
+    setError('')
+    setMessage('')
+
+    try {
+      const tasks = Object.entries(form).map(([key, value]) => {
+        const payload: { key: string; value: string | number; updated_at?: string; updated_by?: string } = {
+          key,
+          value: key === 'low_stock_threshold' ? Number(value || 0) : value,
+          updated_at: new Date().toISOString(),
+          updated_by: profile.id,
+        }
+        return client.from('settings').upsert(payload, { onConflict: 'key' })
+      })
+
+      const results = await Promise.all(tasks)
+      const saveErrors = results.filter((result) => result.error)
+      if (saveErrors.length > 0) {
+        throw new Error(saveErrors[0].error?.message ?? 'Gagal menyimpan pengaturan.')
+      }
+
+      setMessage('Pengaturan toko berhasil disimpan.')
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Pengaturan gagal disimpan.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">SETTINGS</p><h1>Pengaturan</h1><p className="subtitle">Konfigurasi dasar operasional toko.</p></div></div>{!canManageSettings ? <div className="panel"><div className="panel-heading"><div><h2>Mode baca</h2><p>Hanya MASTER yang dapat mengubah pengaturan.</p></div></div></div> : null}<div className="panel"><div className="panel-heading"><div><h2>Konfigurasi toko</h2><p>{canManageSettings ? 'Ubah pengaturan operasional toko.' : 'Lihat konfigurasi yang berlaku saat ini.'}</p></div></div>{canManageSettings ? <form onSubmit={handleSave}><div className="two-col"><label>Low stock threshold<input type="number" min="0" value={form.low_stock_threshold ?? '5'} onChange={(event) => setForm((current) => ({ ...current, low_stock_threshold: event.target.value }))} /></label><label>Currency<input value={form.currency ?? 'IDR'} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))} /></label></div><div className="two-col"><label>Default unit<input value={form.default_unit ?? 'pcs'} onChange={(event) => setForm((current) => ({ ...current, default_unit: event.target.value }))} /></label><label>Alamat toko<input value={form.store_address ?? 'Jl. Raya Barokah No. 12'} onChange={(event) => setForm((current) => ({ ...current, store_address: event.target.value }))} /></label></div>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit" disabled={loading}>{loading ? 'Menyimpan...' : 'Simpan pengaturan'}</button></form> : <div className="table-wrap"><table><thead><tr><th>Pengaturan</th><th>Nilai</th></tr></thead><tbody>{Object.entries(form).map(([key, value]) => <tr key={key}><td>{key === 'low_stock_threshold' ? 'Low stock threshold' : key === 'default_unit' ? 'Default unit' : key === 'currency' ? 'Currency' : 'Alamat toko'}</td><td><strong>{value}</strong></td></tr>)}</tbody></table></div>}</div></section>
 }
 
 function MetricCard({ label, value, change, tone, icon: Icon }: { label: string; value: string; change: string; tone: string; icon: typeof CircleDollarSign }) {
