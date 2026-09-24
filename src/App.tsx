@@ -1391,7 +1391,8 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [transfers, setTransfers] = useState<TransferRecord[]>([])
   const [transferItems, setTransferItems] = useState<TransferItemRecord[]>([])
   const [products, setProducts] = useState<ProductRecord[]>([])
-  const isOperationalUser = profile.role !== 'MASTER'
+  const isLocationUser = profile.role !== 'MASTER'
+  const isOperationalUser = true
   const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('outgoing')
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
@@ -1658,7 +1659,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     return buttonAction
   }
 
-  const visibleTransfers = isOperationalUser
+  const visibleTransfers = isLocationUser
     ? transfers.filter((transfer) => {
         const isIncoming = transfer.destination_location_id === profile.location_id
         const isOutgoing = transfer.source_location_id === profile.location_id
