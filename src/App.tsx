@@ -39,6 +39,8 @@ const locations = ['Semua lokasi', 'Gudang', 'Live', 'Ruko 1', 'Ruko 2', 'Ruko 3
 
 type DashboardData = {
   transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string }>
+  transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
+  products: Array<{ id: string; name: string }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
   movements: Array<{ id: string; movement_type: string; quantity: number; location_id: string; created_at: string }>
   locations: Array<{ id: string; name: string }>
@@ -158,7 +160,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const [active, setActive] = useState('Overview')
   const [location, setLocation] = useState('All locations')
   const [query, setQuery] = useState('')
-  const [dashboard, setDashboard] = useState<DashboardData>({ transactions: [], stock: [], movements: [], locations: [] })
+  const [dashboard, setDashboard] = useState<DashboardData>({ transactions: [], transactionItems: [], products: [], stock: [], movements: [], locations: [] })
   const [dashboardState, setDashboardState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
@@ -167,18 +169,27 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     let mounted = true
     async function loadDashboard() {
       setDashboardState('loading')
-      const [transactions, stock, movements, availableLocations] = await Promise.all([
+      const [transactions, transactionItems, products, stock, movements, availableLocations] = await Promise.all([
         client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at').order('created_at', { ascending: false }).limit(100),
+        client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
+        client.from('products').select('id, name').eq('active', true).order('name'),
         client.from('stocks').select('product_id, location_id, quantity'),
         client.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').order('created_at', { ascending: false }).limit(8),
         client.from('locations').select('id, name').eq('active', true).order('name'),
       ])
       if (!mounted) return
-      if (transactions.error || stock.error || movements.error || availableLocations.error) {
+      if (transactions.error || transactionItems.error || products.error || stock.error || movements.error || availableLocations.error) {
         setDashboardState('error')
         return
       }
-      setDashboard({ transactions: transactions.data ?? [], stock: stock.data ?? [], movements: movements.data ?? [], locations: availableLocations.data ?? [] })
+      setDashboard({
+        transactions: transactions.data ?? [],
+        transactionItems: transactionItems.data ?? [],
+        products: products.data ?? [],
+        stock: stock.data ?? [],
+        movements: movements.data ?? [],
+        locations: availableLocations.data ?? [],
+      })
       setDashboardState('ready')
     }
     void loadDashboard()
@@ -622,7 +633,8 @@ function ReportsView({ data }: { data: DashboardData }) {
   const locationName = (id: string) => data.locations.find((item) => item.id === id)?.name ?? 'Unknown'
   const transactions = data.transactions.filter((item) => location === 'all' || item.location_id === location)
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>Sales report</h1><p className="subtitle">Data langsung dari transaksi Supabase.</p></div><label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)}><option value="all">All locations</option>{data.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><div className="report-cards"><MetricCard label="Revenue" value={formatCurrency(revenue)} change="Live data" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transactions" value={formatNumber(transactions.length)} change="Live data" tone="green" icon={ShoppingCart} /><MetricCard label="Average sale" value={formatCurrency(transactions.length ? revenue / transactions.length : 0)} change="Calculated" tone="orange" icon={CircleDollarSign} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr>)}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div></section>
+  const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>Sales report</h1><p className="subtitle">Data langsung dari transaksi Supabase.</p></div><label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)}><option value="all">All locations</option>{data.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><div className="report-cards"><MetricCard label="Revenue" value={formatCurrency(revenue)} change="Live data" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transactions" value={formatNumber(transactions.length)} change="Live data" tone="green" icon={ShoppingCart} /><MetricCard label="Average sale" value={formatCurrency(transactions.length ? revenue / transactions.length : 0)} change="Calculated" tone="orange" icon={CircleDollarSign} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div></section>
 }
 
 function PurchasesView({ profile, locations }: { profile: Profile; locations: Array<{ id: string; name: string }> }) {
