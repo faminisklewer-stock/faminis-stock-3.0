@@ -385,13 +385,15 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         }))
       })
 
-    const stockRows = dashboard.stock
-      .filter((item) => scopeLocationIds.includes(item.location_id))
-      .map((item) => ({
-        product: productName(item.product_id),
-        location: locationName(item.location_id),
-        quantity: Number(item.quantity),
-      }))
+    const stockMap = new Map<string, number>()
+    for (const item of dashboard.stock.filter((entry) => scopeLocationIds.includes(entry.location_id))) {
+      stockMap.set(`${item.location_id}:${item.product_id}`, Number(item.quantity))
+    }
+    const stockRows = scopeLocationIds.flatMap((locationId) => dashboard.products.map((product) => ({
+      product: productName(product.id),
+      location: locationName(locationId),
+      quantity: Number(stockMap.get(`${locationId}:${product.id}`) ?? 0),
+    })))
       .sort((left, right) => left.location.localeCompare(right.location) || left.product.localeCompare(right.product))
 
     const movementRows = dashboard.movements
@@ -997,7 +999,10 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
       client.from('stocks').select('product_id, location_id, quantity').eq('location_id', locationId),
     ])
     if (productResult.error || stockResult.error) setError('Stok tidak dapat dimuat dari Supabase.')
-    else { setProducts((productResult.data ?? []) as ProductRecord[]); setStocks((stockResult.data ?? []) as StockRecord[]) }
+    else {
+      setProducts((productResult.data ?? []) as ProductRecord[])
+      setStocks((stockResult.data ?? []) as StockRecord[])
+    }
     setLoading(false)
   }
 
@@ -1016,7 +1021,18 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     setMessage('Adjustment stok berhasil disimpan.'); setSelected(null); setPhysical(''); setReason(''); void loadStock(); window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
-  const rows: StockRow[] = stocks.map((stock) => ({ ...stock, product: products.find((product) => product.id === stock.product_id) })).filter((row) => row.product && `${row.product.sku} ${row.product.name}`.toLowerCase().includes(query.toLowerCase()))
+  const rows: StockRow[] = products
+    .map((product) => {
+      const stockValue = stocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
+      return {
+        product_id: product.id,
+        location_id: locationId,
+        quantity: Number(stockValue?.quantity ?? 0),
+        product,
+      }
+    })
+    .filter((row) => `${row.product?.sku ?? ''} ${row.product?.name ?? ''}`.toLowerCase().includes(query.toLowerCase()))
+
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={allowedLocations.length < 2}>{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}<div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th><th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={row.product_id}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td><td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">Belum ada saldo stok di lokasi ini.</div>}</div>}</div>{selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}</section>
 }
 
