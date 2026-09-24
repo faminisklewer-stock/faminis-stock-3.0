@@ -1571,11 +1571,16 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
 
   const locationName = (id: string) => locations.find((location) => location.id === id)?.name ?? 'Lokasi'
   const actionFor = (transfer: TransferRecord) => {
-    if (transfer.status === 'DRAFT') return 'REQUESTED'
-    if (transfer.status === 'REQUESTED' && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'APPROVED'
-    if (transfer.status === 'APPROVED' && (transfer.source_location_id === profile.location_id || (profile.location_id === null && (profile.role === 'MASTER' || profile.role === 'WAREHOUSE')))) return 'SHIPPED'
-    if (transfer.status === 'SHIPPED' && transfer.destination_location_id === profile.location_id) return 'RECEIVED'
-    if (transfer.status === 'RECEIVED' && (transfer.destination_location_id === profile.location_id || profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'COMPLETED'
+    const canActAsSource = !isLocationUser || transfer.source_location_id === profile.location_id
+    const canActAsDestination = !isLocationUser || transfer.destination_location_id === profile.location_id
+    if (transferTab === 'outgoing') {
+      if (transfer.status === 'DRAFT' && canActAsSource) return 'REQUESTED'
+      if (transfer.status === 'APPROVED' && canActAsSource) return 'SHIPPED'
+      return null
+    }
+    if (transfer.status === 'REQUESTED' && canActAsDestination && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'APPROVED'
+    if (transfer.status === 'SHIPPED' && canActAsDestination) return 'RECEIVED'
+    if (transfer.status === 'RECEIVED' && canActAsDestination && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE' || isLocationUser)) return 'COMPLETED'
     return null
   }
   async function updateDraftTransfer(transfer: TransferRecord) {
@@ -1631,6 +1636,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   }
 
   const renderDraftControls = (transfer: TransferRecord) => {
+    if (transferTab !== 'outgoing') return <span className="muted-text">-</span>
     if (transfer.status !== 'DRAFT') return <span className="muted-text">-</span>
     if (!canManageDraft(transfer)) return <span className="muted-text">-</span>
     if (editingTransferId === transfer.id) {
