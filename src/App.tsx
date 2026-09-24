@@ -252,8 +252,13 @@ function ConfigurationState() {
 function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => void }) {
   const isMasterUser = profile.role === 'MASTER'
   const [active, setActive] = useState(isMasterUser ? 'Ringkasan' : 'Kasir')
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [location, setLocation] = useState('All locations')
   const visibleNavItems = isMasterUser ? masterNavItems : operationalNavItems
+  const mobilePrimaryItems = visibleNavItems.slice(0, isMasterUser ? 4 : visibleNavItems.length)
+  const mobileMoreItems = isMasterUser
+    ? [...visibleNavItems.slice(4), { label: 'Pelanggan', icon: Users }, { label: 'Akses tim', icon: UserRound }, { label: 'Pengaturan', icon: Settings }]
+    : []
   const [query, setQuery] = useState('')
   const [dashboard, setDashboard] = useState<DashboardData>({
     transactions: [],
@@ -935,6 +940,11 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           </>}
         </div>
       </main>
+      <nav className="mobile-nav" aria-label="Navigasi utama mobile">
+        {mobilePrimaryItems.map(({ label, icon: Icon, badge }: { label: string; icon: typeof LayoutDashboard; badge?: string }) => <button key={label} className={`mobile-nav-item ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); setMobileMoreOpen(false) }} aria-current={active === label ? 'page' : undefined}><span className="mobile-nav-icon"><Icon size={18} />{badge && <em>{badge}</em>}</span><span>{label}</span></button>)}
+        {mobileMoreItems.length > 0 && <button className={`mobile-nav-item ${mobileMoreOpen || !mobilePrimaryItems.some((item) => item.label === active) ? 'active' : ''}`} onClick={() => setMobileMoreOpen((current) => !current)} aria-expanded={mobileMoreOpen}><span className="mobile-nav-icon"><Grid2X2 size={18} /></span><span>Lainnya</span></button>}
+      </nav>
+      {mobileMoreOpen && <div className="mobile-more-backdrop" onClick={() => setMobileMoreOpen(false)}><section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="Menu lainnya" onClick={(event) => event.stopPropagation()}><div className="mobile-sheet-handle"></div><div className="mobile-sheet-heading"><div><p className="eyebrow">NAVIGASI</p><h2>Menu lainnya</h2></div><button className="icon-button" onClick={() => setMobileMoreOpen(false)} aria-label="Tutup menu">×</button></div><div className="mobile-more-grid">{mobileMoreItems.map(({ label, icon: Icon, badge }: { label: string; icon: typeof LayoutDashboard; badge?: string }) => <button key={label} className={`mobile-more-item ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); setMobileMoreOpen(false) }}><span className="mobile-nav-icon"><Icon size={19} />{badge && <em>{badge}</em>}</span><span>{label}</span></button>)}</div></section></div>}
     </div>
   )
 }
