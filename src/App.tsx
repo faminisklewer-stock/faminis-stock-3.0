@@ -101,6 +101,29 @@ function filterApprovedProducts<T extends { sku?: string | null }>(products: T[]
   return products.filter((product) => isApprovedSku(product.sku ?? null))
 }
 
+function getProductCategoryId(product: { category_id?: string | null; sku?: string | null; name?: string | null }, categories: CategoryRecord[]) {
+  const canonicalCategoryId = product.category_id && categories.some((category) => category.id === product.category_id)
+    ? product.category_id
+    : ''
+
+  if (canonicalCategoryId) return canonicalCategoryId
+
+  const skuPrefix = (product.sku ?? '').trim().toUpperCase().split('-')[0]
+  if (skuPrefix) {
+    const resolvedCategoryName = APPROVED_CATEGORY_NAMES.find((categoryName) => PRODUCT_CATEGORY_PREFIXES[categoryName] === skuPrefix)
+    if (resolvedCategoryName) {
+      return categories.find((category) => normalizeCategoryName(category.name) === resolvedCategoryName)?.id ?? ''
+    }
+  }
+
+  const normalizedProductName = normalizeCategoryName(product.name)
+  if (normalizedProductName) {
+    return categories.find((category) => normalizeCategoryName(category.name) === normalizedProductName)?.id ?? ''
+  }
+
+  return ''
+}
+
 function getApprovedCategoryList(categories: CategoryRecord[]) {
   const normalized = categories
     .map((category) => {
@@ -956,7 +979,11 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
       const stockMap = new Map((stocks ?? []).map((stock) => [stock.product_id, stock.quantity]))
       const categoryNameMap = new Map((categories ?? []).map((category) => [category.id, category.name]))
       const approvedProducts = filterApprovedProducts(data ?? [])
-      setProducts(approvedProducts.map((product) => ({ ...product, stock: stockMap.get(product.id) ?? 0, category_name: categoryNameMap.get(product.category_id ?? '') ?? null })))
+      setProducts(approvedProducts.map((product) => {
+        const resolvedCategoryId = getProductCategoryId(product, categories ?? [])
+        const resolvedCategoryName = resolvedCategoryId ? categoryNameMap.get(resolvedCategoryId) ?? null : null
+        return { ...product, category_id: resolvedCategoryId, stock: stockMap.get(product.id) ?? 0, category_name: resolvedCategoryName }
+      }))
       setLoading(false)
     })
     return () => { mounted = false }
@@ -964,7 +991,8 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
 
   const total = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
   const filteredProducts = products.filter((product) => {
-    const matchesCategory = selectedCategoryId === 'all' || product.category_id === selectedCategoryId
+    const productCategoryId = getProductCategoryId(product, categories)
+    const matchesCategory = selectedCategoryId === 'all' || productCategoryId === selectedCategoryId
     const matchesText = `${product.name} ${product.sku}`.toLowerCase().includes(search.toLowerCase())
     return matchesCategory && matchesText
   })
@@ -1074,7 +1102,8 @@ function ProductsView({ profile }: { profile: Profile }) {
   }
 
   const filtered = products.filter((product) => {
-    const matchesCategory = !selectedCategoryId || product.category_id === selectedCategoryId
+    const productCategoryId = getProductCategoryId(product, categories)
+    const matchesCategory = !selectedCategoryId || productCategoryId === selectedCategoryId
     const matchesQuery = `${product.sku} ${product.name} ${product.variant ?? ''}`.toLowerCase().includes(query.toLowerCase())
     return matchesCategory && matchesQuery
   })
