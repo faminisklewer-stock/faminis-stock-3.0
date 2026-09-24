@@ -504,7 +504,6 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       }))
 
     return {
-      scopeLocationIds,
       locationName,
       salesRows,
       transferRows,
@@ -1007,6 +1006,46 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
   }, [categories, client, locationId])
 
   const total = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+  const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  useEffect(() => {
+    const page = document.querySelector<HTMLElement>('.pos-page')
+    if (!page) return
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'floating-cart-button'
+    button.setAttribute('aria-label', `Buka cart, ${cartItemCount} barang`)
+    button.innerHTML = `<span class="floating-cart-icon" aria-hidden="true">🛒</span><span>Cart</span><em>${cartItemCount}</em>`
+    button.addEventListener('click', () => {
+      const panel = page.querySelector<HTMLElement>('.cart-panel')
+      if (!panel) return
+      const existingBackdrop = page.querySelector('.floating-cart-backdrop')
+      if (existingBackdrop) {
+        panel.classList.remove('cart-panel-popup')
+        existingBackdrop.remove()
+        document.body.style.overflow = ''
+        return
+      }
+      const backdrop = document.createElement('button')
+      backdrop.type = 'button'
+      backdrop.className = 'floating-cart-backdrop'
+      backdrop.setAttribute('aria-label', 'Tutup cart')
+      backdrop.addEventListener('click', () => {
+        panel.classList.remove('cart-panel-popup')
+        backdrop.remove()
+        document.body.style.overflow = ''
+      })
+      panel.classList.add('cart-panel-popup')
+      page.append(backdrop)
+      document.body.style.overflow = 'hidden'
+    })
+    page.append(button)
+    return () => {
+      button.remove()
+      page.querySelector<HTMLElement>('.cart-panel')?.classList.remove('cart-panel-popup')
+      page.querySelector('.floating-cart-backdrop')?.remove()
+      document.body.style.overflow = ''
+    }
+  }, [cartItemCount])
   const filteredProducts = products.filter((product) => {
     const productCategoryId = getProductCategoryId(product, categories)
     const matchesCategory = selectedCategoryId === 'all' || productCategoryId === selectedCategoryId
