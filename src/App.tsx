@@ -48,14 +48,36 @@ type DashboardData = {
   purchaseItems: Array<{ id: string; receipt_id: string; product_id: string; quantity: number; purchase_cost: number | null }>
 }
 
-type PosProduct = { id: string; sku: string; name: string; unit: string; stock: number }
+type PosProduct = { id: string; sku: string; name: string; unit: string; stock: number; category_id?: string | null; category_name?: string | null }
 type CartItem = PosProduct & { quantity: number; unitPrice: number }
 type LocationOption = { id: string; name: string }
-type ProductRecord = { id: string; sku: string; name: string; unit: string; variant: string | null; active: boolean }
+type CategoryRecord = { id: string; name: string; active: boolean }
+type ProductRecord = { id: string; sku: string; name: string; unit: string; variant: string | null; active: boolean; category_id: string | null; category_name?: string | null }
 type StockRecord = { product_id: string; location_id: string; quantity: number }
 type StockRow = StockRecord & { product?: ProductRecord }
 type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }
 type TransferItemRecord = { id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }
+
+const PRODUCT_CATEGORY_PREFIXES: Record<string, string> = {
+  Mukena: 'MKN',
+  Sarung: 'SRG',
+  Sajadah: 'SJD',
+  Daster: 'DST',
+  'Busana Wanita': 'BSW',
+  'Busana Pria': 'BSP',
+}
+
+function getCategoryPrefix(categoryName: string | null | undefined) {
+  if (!categoryName) return ''
+  return PRODUCT_CATEGORY_PREFIXES[categoryName] ?? categoryName.replace(/\s+/g, '').slice(0, 3).toUpperCase()
+}
+
+function isValidCategorySku(sku: string, categoryName: string | null | undefined) {
+  const normalizedSku = sku.trim().toUpperCase()
+  const prefix = getCategoryPrefix(categoryName)
+  if (!normalizedSku || !prefix) return true
+  return new RegExp(`^${prefix}-[A-Z0-9]+$`).test(normalizedSku)
+}
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -860,15 +882,28 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
   const [error, setError] = useState('')
   const client = supabase
 
+  const [categories, setCategories] = useState<CategoryRecord[]>([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all')
+
   useEffect(() => {
     if (!locationId && locations[0]?.id) setLocationId(locations[0].id)
   }, [locationId, locations])
 
   useEffect(() => {
+    if (!client) return
+    let mounted = true
+    void client.from('categories').select('id, name, active').eq('active', true).order('name').then(({ data, error }) => {
+      if (!mounted) return
+      if (!error) setCategories((data ?? []) as CategoryRecord[])
+    })
+    return () => { mounted = false }
+  }, [client])
+
+  useEffect(() => {
     if (!client || !locationId) return
     let mounted = true
     setLoading(true)
-    void client.from('products').select('id, sku, name, unit').eq('active', true).order('name').limit(100).then(async ({ data, error: productError }) => {
+    void client.from('products').select('id, sku, name, unit, category_id').eq('active', true).order('name').limit(100).then(async ({ data, error: productError }) => {
       if (!mounted) return
       if (productError) { setError('Produk tidak dapat dimuat dari Supabase.'); setLoading(false); return }
       const productIds = (data ?? []).map((product) => product.id)
@@ -876,14 +911,19 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
       if (!mounted) return
       if (stockError) setError('Stok tidak dapat dimuat dari Supabase.')
       const stockMap = new Map((stocks ?? []).map((stock) => [stock.product_id, stock.quantity]))
-      setProducts((data ?? []).map((product) => ({ ...product, stock: stockMap.get(product.id) ?? 0 })))
+      const categoryNameMap = new Map((categories ?? []).map((category) => [category.id, category.name]))
+      setProducts((data ?? []).map((product) => ({ ...product, stock: stockMap.get(product.id) ?? 0, category_name: categoryNameMap.get(product.category_id ?? '') ?? null })))
       setLoading(false)
     })
     return () => { mounted = false }
-  }, [client, locationId])
+  }, [categories, client, locationId])
 
   const total = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-  const filteredProducts = products.filter((product) => `${product.name} ${product.sku}`.toLowerCase().includes(search.toLowerCase()))
+  const filteredProducts = products.filter((product) => {
+    const matchesCategory = selectedCategoryId === 'all' || product.category_id === selectedCategoryId
+    const matchesText = `${product.name} ${product.sku}`.toLowerCase().includes(search.toLowerCase())
+    return matchesCategory && matchesText
+  })
   const canChooseLocation = profile.role === 'MASTER' || profile.role === 'OWNER'
 
   function addProduct(product: PosProduct) {
@@ -924,12 +964,14 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
-  return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search SKU or product..." /></div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button type="button" className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.stock} {product.unit} available</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button type="button" className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label><label>Paid amount<input type="number" min="0" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="0" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button type="button" className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
+  return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SKU atau produk..." /></div><div className="category-pills" aria-label="Filter kategori produk">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button type="button" className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.category_name ?? 'Tanpa kategori'} · {product.stock} {product.unit} tersedia</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button type="button" className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label><label>Paid amount<input type="number" min="0" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="0" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button type="button" className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
 }
 
 function ProductsView({ profile }: { profile: Profile }) {
   const [products, setProducts] = useState<ProductRecord[]>([])
+  const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [query, setQuery] = useState('')
+  const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [sku, setSku] = useState('')
   const [name, setName] = useState('')
   const [variant, setVariant] = useState('')
@@ -941,23 +983,37 @@ function ProductsView({ profile }: { profile: Profile }) {
   const client = supabase
   const canManage = profile.role === 'MASTER'
 
+  async function loadCategories() {
+    if (!client) return
+    const { data, error: categoryError } = await client.from('categories').select('id, name, active').eq('active', true).order('name')
+    if (!categoryError) {
+      const nextCategories = (data ?? []) as CategoryRecord[]
+      setCategories(nextCategories)
+      if (!selectedCategoryId && nextCategories[0]) setSelectedCategoryId(nextCategories[0].id)
+    }
+  }
+
   async function loadProducts() {
     if (!client) return
     setLoading(true)
-    const { data, error: loadError } = await client.from('products').select('id, sku, name, unit, variant, active').order('name')
+    const { data, error: loadError } = await client.from('products').select('id, sku, name, unit, variant, active, category_id').order('name')
     if (loadError) setError('Produk tidak dapat dimuat dari Supabase.')
     else setProducts((data ?? []) as ProductRecord[])
     setLoading(false)
   }
 
-  useEffect(() => { void loadProducts() }, [client])
+  useEffect(() => { void loadCategories(); void loadProducts() }, [client])
 
   async function saveProduct(event: FormEvent) {
     event.preventDefault()
     if (!client || !canManage) return
+    if (!selectedCategoryId) { setError('Pilih kategori produk terlebih dahulu.'); return }
+    const selectedCategory = categories.find((category) => category.id === selectedCategoryId)
     if (!sku.trim() || !name.trim() || !unit.trim()) { setError('SKU, nama, dan unit wajib diisi.'); return }
+    const normalizedSku = sku.trim().toUpperCase()
+    if (!isValidCategorySku(normalizedSku, selectedCategory?.name ?? null)) { setError(`SKU harus diawali dengan ${getCategoryPrefix(selectedCategory?.name ?? null)}- dan memakai format baru yang benar.`); return }
     setSaving(true); setError(''); setMessage('')
-    const { error: saveError } = await client.from('products').insert({ sku: sku.trim(), name: name.trim(), variant: variant.trim() || null, unit: unit.trim() })
+    const { error: saveError } = await client.from('products').insert({ sku: normalizedSku, name: name.trim(), category_id: selectedCategoryId, variant: variant.trim() || null, unit: unit.trim() })
     setSaving(false)
     if (saveError) { setError(saveError.message.includes('duplicate') ? 'SKU sudah digunakan.' : 'Produk gagal disimpan.'); return }
     setSku(''); setName(''); setVariant(''); setUnit('pcs'); setMessage('Produk berhasil dibuat.'); void loadProducts()
@@ -970,9 +1026,13 @@ function ProductsView({ profile }: { profile: Profile }) {
     else void loadProducts()
   }
 
-  const filtered = products.filter((product) => `${product.sku} ${product.name} ${product.variant ?? ''}`.toLowerCase().includes(query.toLowerCase()))
+  const filtered = products.filter((product) => {
+    const matchesCategory = !selectedCategoryId || product.category_id === selectedCategoryId
+    const matchesQuery = `${product.sku} ${product.name} ${product.variant ?? ''}`.toLowerCase().includes(query.toLowerCase())
+    return matchesCategory && matchesQuery
+  })
   if (!canManage) return <AccessRestricted title="Produk" message="Hanya MASTER yang dapat mengelola katalog produk." />
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PRODUCT CATALOG</p><h1>Produk</h1><p className="subtitle">Kelola katalog tanpa menyimpan harga jual permanen.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={saveProduct}><div className="panel-heading"><div><h2>Tambah produk</h2><p>Harga dimasukkan saat transaksi kasir.</p></div></div><label>SKU<input value={sku} onChange={(event) => setSku(event.target.value)} placeholder="DAS-001" /></label><label>Nama produk<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Daster Batik A" /></label><label>Varian<input value={variant} onChange={(event) => setVariant(event.target.value)} placeholder="Daster" /></label><label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="pcs" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan produk'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar produk</h2><p>{products.length} produk terdaftar</p></div><input className="table-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau nama" /></div>{loading ? <div className="empty-state">Memuat produk...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Nama</th><th>Varian</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>{filtered.map((product) => <tr key={product.id}><td><strong>{product.sku}</strong></td><td>{product.name}</td><td>{product.variant ?? '-'}</td><td>{product.unit}</td><td><span className={`status ${product.active ? '' : 'status-off'}`}><i></i>{product.active ? 'Aktif' : 'Nonaktif'}</span></td><td><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></td></tr>)}</tbody></table>{!filtered.length && <div className="empty-state">Produk tidak ditemukan.</div>}</div>}</div></div></section>
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PRODUCT CATALOG</p><h1>Produk</h1><p className="subtitle">Kelola katalog tanpa menyimpan harga jual permanen.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={saveProduct}><div className="panel-heading"><div><h2>Tambah produk</h2><p>Harga dimasukkan saat transaksi kasir.</p></div></div><label>Kategori<select value={selectedCategoryId} onChange={(event) => setSelectedCategoryId(event.target.value)}><option value="">Pilih kategori</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>SKU<input value={sku} onChange={(event) => setSku(event.target.value.toUpperCase())} placeholder="MKN-PRM" /></label><label>Nama produk<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Mukena Premium" /></label><label>Varian<input value={variant} onChange={(event) => setVariant(event.target.value)} placeholder="Premium / Polos / Batik" /></label><label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="pcs" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan produk'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar produk</h2><p>{products.length} produk terdaftar</p></div><input className="table-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau nama" /></div><div className="category-pills compact" aria-label="Filter daftar produk">{categories.map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId((current) => current === category.id ? '' : category.id)}>{category.name}</button>)}</div>{loading ? <div className="empty-state">Memuat produk...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th>Varian</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>{filtered.map((product) => <tr key={product.id}><td><strong>{product.sku}</strong></td><td>{product.name}</td><td>{categories.find((category) => category.id === product.category_id)?.name ?? 'Tanpa kategori'}</td><td>{product.variant ?? '-'}</td><td>{product.unit}</td><td><span className={`status ${product.active ? '' : 'status-off'}`}><i></i>{product.active ? 'Aktif' : 'Nonaktif'}</span></td><td><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></td></tr>)}</tbody></table>{!filtered.length && <div className="empty-state">Produk tidak ditemukan.</div>}</div>}</div></div></section>
 }
 
 function StockView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
