@@ -1173,7 +1173,7 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     const productCategoryId = getProductCategoryId(product, categories)
     const matchesCategory = selectedCategoryId === 'all' || productCategoryId === selectedCategoryId
     const matchesText = `${product.name} ${product.sku}`.toLowerCase().includes(search.toLowerCase())
-    return matchesCategory && matchesText
+    return product.stock > 0 && matchesCategory && matchesText
   })
   const canChooseLocation = profile.role === 'MASTER' || profile.role === 'OWNER'
 
@@ -1481,7 +1481,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
       const availableStock = Number(sourceStocks.find((stock) => stock.product_id === product.id)?.quantity ?? 0)
       option.textContent = `${product.sku ?? ''} - ${product.name} (stok ${availableStock})`
       option.disabled = availableStock <= 0
-      option.hidden = Boolean(normalizedQuery) && !`${product.sku ?? ''} ${product.name}`.toLowerCase().includes(normalizedQuery)
+      option.hidden = availableStock <= 0 || (Boolean(normalizedQuery) && !`${product.sku ?? ''} ${product.name}`.toLowerCase().includes(normalizedQuery))
     })
     return () => searchInput.remove()
   }, [productQuery, products, sourceStocks])
