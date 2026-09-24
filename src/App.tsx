@@ -1448,6 +1448,12 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   useEffect(() => { void loadTransfers() }, [loadTransfers])
 
   useEffect(() => {
+    if (!isOperationalUser || transferTab !== 'outgoing' || !profile.location_id) return
+    const hasPendingIncoming = transfers.some((transfer) => transfer.destination_location_id === profile.location_id && transfer.status !== 'DRAFT' && transfer.status !== 'COMPLETED')
+    if (hasPendingIncoming) setTransferTab('incoming')
+  }, [isOperationalUser, profile.location_id, transferTab, transfers])
+
+  useEffect(() => {
     if (!client || !source) {
       setSourceStocks([])
       return
