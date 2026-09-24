@@ -295,61 +295,94 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }).join(' ')
   const chartFill = `${chartPoints} L660,190 L18,190 Z`
 
-  function getOperationalReportData() {
+  function getOperationalReportData(scope: 'all' | 'selected' = 'all') {
+    const allLocationIds = dashboard.locations.map((item) => item.id)
+    const selectedScopeLocationIds = location === 'All locations'
+      ? allLocationIds
+      : [dashboard.locations.find((item) => item.name === location)?.id].filter(Boolean) as string[]
     const scopeLocationIds = (profile.role === 'MASTER' || profile.role === 'OWNER')
-      ? (location === 'All locations' ? dashboard.locations.map((item) => item.id) : [dashboard.locations.find((item) => item.name === location)?.id].filter(Boolean) as string[])
+      ? (scope === 'selected' ? selectedScopeLocationIds : allLocationIds)
       : [profile.location_id].filter(Boolean) as string[]
     const productName = (productId: string) => dashboard.products.find((product) => product.id === productId)?.name ?? 'Produk'
     const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Unknown'
+    const formatTransferId = (id: string) => id.replace(/-/g, '').slice(0, 8).toUpperCase()
 
     const salesRows = dashboard.transactions
       .filter((item) => scopeLocationIds.includes(item.location_id))
-      .map((item) => {
-        const items = dashboard.transactionItems
-          .filter((entry) => entry.transaction_id === item.id)
-          .map((entry) => `${productName(entry.product_id)} (${entry.quantity})`)
-          .join(' | ')
-        return {
+      .flatMap((item) => {
+        const details = dashboard.transactionItems.filter((entry) => entry.transaction_id === item.id)
+        if (!details.length) {
+          return [{
+            invoice_no: item.invoice_no,
+            location: locationName(item.location_id),
+            product_name: 'Produk',
+            quantity: 0,
+            grand_total: Number(item.grand_total),
+            created_at: new Date(item.created_at).toISOString(),
+            payment_status: 'PAID',
+          }]
+        }
+        return details.map((entry) => ({
           invoice_no: item.invoice_no,
           location: locationName(item.location_id),
+          product_name: productName(entry.product_id),
+          quantity: Number(entry.quantity),
           grand_total: Number(item.grand_total),
           created_at: new Date(item.created_at).toISOString(),
-          items,
           payment_status: 'PAID',
-        }
+        }))
       })
 
     const transferRows = dashboard.transfers
       .filter((item) => scopeLocationIds.includes(item.source_location_id) || scopeLocationIds.includes(item.destination_location_id))
-      .map((item) => {
-        const items = dashboard.transferItems
-          .filter((entry) => entry.transfer_id === item.id)
-          .map((entry) => `${productName(entry.product_id)} (${entry.shipped_quantity}${entry.received_quantity != null ? ` / diterima ${entry.received_quantity}` : ''})`)
-          .join(' | ')
-        return {
-          transfer_id: item.id,
+      .flatMap((item) => {
+        const details = dashboard.transferItems.filter((entry) => entry.transfer_id === item.id)
+        if (!details.length) {
+          return [{
+            transfer_id: formatTransferId(item.id),
+            source: locationName(item.source_location_id),
+            destination: locationName(item.destination_location_id),
+            status: item.status,
+            product_name: 'Produk',
+            shipped_quantity: 0,
+            received_quantity: 0,
+            notes: item.notes ?? '',
+            created_at: new Date(item.created_at).toISOString(),
+          }]
+        }
+        return details.map((entry) => ({
+          transfer_id: formatTransferId(item.id),
           source: locationName(item.source_location_id),
           destination: locationName(item.destination_location_id),
           status: item.status,
-          created_at: new Date(item.created_at).toISOString(),
-          items,
+          product_name: productName(entry.product_id),
+          shipped_quantity: Number(entry.shipped_quantity ?? 0),
+          received_quantity: Number(entry.received_quantity ?? 0),
           notes: item.notes ?? '',
-        }
+          created_at: new Date(item.created_at).toISOString(),
+        }))
       })
 
     const purchaseRows = dashboard.purchases
       .filter((item) => scopeLocationIds.includes(item.location_id))
-      .map((item) => {
-        const items = dashboard.purchaseItems
-          .filter((entry) => entry.receipt_id === item.id)
-          .map((entry) => `${productName(entry.product_id)} (${entry.quantity})`)
-          .join(' | ')
-        return {
+      .flatMap((item) => {
+        const details = dashboard.purchaseItems.filter((entry) => entry.receipt_id === item.id)
+        if (!details.length) {
+          return [{
+            supplier: item.supplier_name ?? 'Unknown',
+            location: locationName(item.location_id),
+            product_name: 'Produk',
+            quantity: 0,
+            created_at: new Date(item.created_at).toISOString(),
+          }]
+        }
+        return details.map((entry) => ({
           supplier: item.supplier_name ?? 'Unknown',
           location: locationName(item.location_id),
+          product_name: productName(entry.product_id),
+          quantity: Number(entry.quantity),
           created_at: new Date(item.created_at).toISOString(),
-          items,
-        }
+        }))
       })
 
     const stockRows = dashboard.stock
@@ -359,6 +392,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         location: locationName(item.location_id),
         quantity: Number(item.quantity),
       }))
+      .sort((left, right) => left.location.localeCompare(right.location) || left.product.localeCompare(right.product))
 
     const movementRows = dashboard.movements
       .filter((item) => scopeLocationIds.includes(item.location_id))
@@ -390,8 +424,8 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     }
   }
 
-  function downloadCsvReport() {
-    const report = getOperationalReportData()
+  function downloadCsvReport(scope: 'all' | 'selected' = 'all') {
+    const report = getOperationalReportData(scope)
     const csvData = [
       ['Laporan', 'Operasional Faminis'],
       ['Role user', report.summary.role],
@@ -405,20 +439,20 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       ['Tanggal export', new Date().toLocaleString('id-ID')],
       [],
       ['SALES'],
-      ['invoice_no', 'location', 'items', 'grand_total', 'created_at', 'payment_status'],
-      ...report.salesRows.map((row) => [row.invoice_no, row.location, row.items, row.grand_total, row.created_at, row.payment_status]),
+      ['invoice_no', 'location', 'product_name', 'quantity', 'grand_total', 'created_at', 'payment_status'],
+      ...report.salesRows.map((row) => [row.invoice_no, row.location, row.product_name, row.quantity, row.grand_total, row.created_at, row.payment_status]),
       [],
       ['TRANSFERS'],
-      ['transfer_id', 'source', 'destination', 'status', 'items', 'notes', 'created_at'],
-      ...report.transferRows.map((row) => [row.transfer_id, row.source, row.destination, row.status, row.items, row.notes, row.created_at]),
+      ['transfer_id', 'source', 'destination', 'status', 'product_name', 'shipped_quantity', 'received_quantity', 'notes', 'created_at'],
+      ...report.transferRows.map((row) => [row.transfer_id, row.source, row.destination, row.status, row.product_name, row.shipped_quantity, row.received_quantity, row.notes, row.created_at]),
       [],
       ['PURCHASES'],
-      ['supplier', 'location', 'items', 'created_at'],
-      ...report.purchaseRows.map((row) => [row.supplier, row.location, row.items, row.created_at]),
+      ['supplier', 'location', 'product_name', 'quantity', 'created_at'],
+      ...report.purchaseRows.map((row) => [row.supplier, row.location, row.product_name, row.quantity, row.created_at]),
       [],
       ['STOCK'],
-      ['product', 'location', 'quantity'],
-      ...report.stockRows.map((row) => [row.product, row.location, row.quantity]),
+      ['location', 'product', 'quantity'],
+      ...report.stockRows.map((row) => [row.location, row.product, row.quantity]),
       [],
       ['MOVEMENTS'],
       ['movement_type', 'location', 'quantity', 'created_at'],
@@ -440,8 +474,8 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     URL.revokeObjectURL(url)
   }
 
-  function downloadPdfReport() {
-    const report = getOperationalReportData()
+  function downloadPdfReport(scope: 'all' | 'selected' = 'all') {
+    const report = getOperationalReportData(scope)
     const tableRows = (rows: Array<{ [key: string]: string | number }>, headers: string[]) => `
       <table>
         <thead>
@@ -452,12 +486,6 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         </tbody>
       </table>
     `
-
-    const salesHeaders = ['invoice_no', 'location', 'items', 'grand_total', 'created_at']
-    const transferHeaders = ['transfer_id', 'source', 'destination', 'status', 'items', 'created_at']
-    const purchaseHeaders = ['supplier', 'location', 'items', 'created_at']
-    const stockHeaders = ['product', 'location', 'quantity']
-    const movementHeaders = ['movement_type', 'location', 'quantity', 'created_at']
 
     const printWindow = window.open('', '_blank', 'width=1200,height=900')
     if (!printWindow) return
@@ -472,6 +500,25 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         <div><strong>Pembelian</strong><span>${report.summary.totalPurchases}</span></div>
       </div>
     `
+
+    const stockSections = Object.entries(report.stockRows.reduce((groups, row) => {
+      const key = row.location
+      groups[key] ??= []
+      groups[key].push(row)
+      return groups
+    }, {} as Record<string, typeof report.stockRows>)).map(([location, rows]) => `
+      <div class="location-group">
+        <h3>${location}</h3>
+        <table>
+          <thead>
+            <tr><th>Produk</th><th>Qty</th></tr>
+          </thead>
+          <tbody>
+            ${rows.map((row) => `<tr><td>${row.product}</td><td>${row.quantity}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    `).join('') || '<div class="empty-note">Belum ada data stok.</div>'
 
     const html = `
       <!doctype html>
@@ -572,6 +619,22 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             margin: 0 0 8px;
             color: var(--brand);
           }
+          .location-group {
+            margin-top: 12px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            background: white;
+          }
+          .location-group h3 {
+            background: var(--brand-soft);
+            color: var(--brand);
+            margin: 0;
+            padding: 10px 12px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
           table {
             width: 100%;
             border-collapse: collapse;
@@ -596,6 +659,10 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           tbody tr:nth-child(even) {
             background: #fcf5f2;
           }
+          .empty-note {
+            padding: 12px 0;
+            color: var(--muted);
+          }
           @media print {
             body { margin: 16px; }
             section { margin-top: 18px; }
@@ -619,10 +686,11 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           ${tableRows(report.salesRows.map((row) => ({
             invoice_no: row.invoice_no,
             location: row.location,
-            items: row.items,
+            product_name: row.product_name,
+            quantity: row.quantity,
             grand_total: formatCurrency(Number(row.grand_total)),
             created_at: new Date(row.created_at).toLocaleString('id-ID'),
-          })), salesHeaders)}
+          })), ['invoice_no', 'location', 'product_name', 'quantity', 'grand_total', 'created_at'])}
         </section>
         <section>
           <h2>Transfer</h2>
@@ -631,26 +699,25 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             source: row.source,
             destination: row.destination,
             status: row.status,
-            items: row.items,
+            product_name: row.product_name,
+            shipped_quantity: row.shipped_quantity,
+            received_quantity: row.received_quantity,
             created_at: new Date(row.created_at).toLocaleString('id-ID'),
-          })), transferHeaders)}
+          })), ['transfer_id', 'source', 'destination', 'status', 'product_name', 'shipped_quantity', 'received_quantity', 'created_at'])}
         </section>
         <section>
           <h2>Pembelian</h2>
           ${tableRows(report.purchaseRows.map((row) => ({
             supplier: row.supplier,
             location: row.location,
-            items: row.items,
+            product_name: row.product_name,
+            quantity: row.quantity,
             created_at: new Date(row.created_at).toLocaleString('id-ID'),
-          })), purchaseHeaders)}
+          })), ['supplier', 'location', 'product_name', 'quantity', 'created_at'])}
         </section>
         <section>
-          <h2>Stok</h2>
-          ${tableRows(report.stockRows.map((row) => ({
-            product: row.product,
-            location: row.location,
-            quantity: row.quantity,
-          })), stockHeaders)}
+          <h2>Stok per lokasi</h2>
+          ${stockSections}
         </section>
         <section>
           <h2>Pergerakan stok</h2>
@@ -659,7 +726,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             location: row.location,
             quantity: row.quantity,
             created_at: new Date(row.created_at).toLocaleString('id-ID'),
-          })), movementHeaders)}
+          })), ['movement_type', 'location', 'quantity', 'created_at'])}
         </section>
       </body>
       </html>
@@ -690,8 +757,8 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       <main className="main-content">
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} onDownloadCsv={downloadCsvReport} onDownloadPdf={downloadPdfReport} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : <>
-          <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={downloadCsvReport}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" onClick={downloadPdfReport}><ArrowDownToLine size={16} /> PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : <>
+          <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'} <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
           <section className="metrics-grid"><MetricCard label="Total omzet" value={dashboardState === 'loading' ? 'Memuat...' : formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Jumlah transaksi" value={dashboardState === 'loading' ? 'Memuat...' : String(visibleTransactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /><MetricCard label="Barang terjual" value={dashboardState === 'loading' ? 'Memuat...' : formatNumber(itemsSold)} change="Data terbaru" tone="orange" icon={Package} /><MetricCard label="Stok menipis" value={dashboardState === 'loading' ? 'Memuat...' : String(lowStock)} change={lowStock ? 'Perlu diperiksa' : 'Stok aman'} tone={lowStock ? 'red' : 'green'} icon={Boxes} /></section>
