@@ -83,6 +83,46 @@ type DashboardData = {
 }
 
 type NotificationRecord = { id: string; action: string; description: string | null; created_at: string }
+type TransferAlert = { title: string; message: string; status: string }
+
+async function requestDeviceNotifications() {
+  if (!('Notification' in window)) return 'unsupported' as const
+  if (Notification.permission === 'default') return Notification.requestPermission()
+  return Notification.permission
+}
+
+async function showDeviceNotification(title: string, message: string) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+  try {
+    const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.ready : null
+    if (registration?.showNotification) await registration.showNotification(title, { body: message, icon: '/icons/faminis-192.svg', tag: 'faminis-transfer' })
+    else new Notification(title, { body: message })
+  } catch (error) {
+    console.warn('Device notification unavailable', error)
+  }
+}
+
+function decodeVapidKey(value: string) {
+  const padding = '='.repeat((4 - value.length % 4) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  return Uint8Array.from(window.atob(base64), (character) => character.charCodeAt(0))
+}
+
+async function registerPushSubscription(userId: string) {
+  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+  if (!supabase || !vapidPublicKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return false
+  try {
+    const registration = await navigator.serviceWorker.ready
+    const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(vapidPublicKey) })
+    const json = subscription.toJSON()
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys.auth) return false
+    const { error } = await supabase.from('push_subscriptions').upsert({ user_id: userId, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth, user_agent: navigator.userAgent }, { onConflict: 'user_id,endpoint' })
+    return !error
+  } catch (error) {
+    console.warn('Push subscription unavailable', error)
+    return false
+  }
+}
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -224,6 +264,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   })
   const [dashboardState, setDashboardState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [notifications, setNotifications] = useState<NotificationRecord[]>([])
+  const [transferAlert, setTransferAlert] = useState<TransferAlert | null>(null)
 
   useEffect(() => {
     if (!supabase) return
@@ -246,6 +287,17 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     const heading = document.createElement('strong')
     heading.textContent = 'Aktivitas terbaru'
     popover.append(heading)
+    const permissionButton = document.createElement('button')
+    permissionButton.type = 'button'
+    permissionButton.className = 'notification-enable'
+    permissionButton.textContent = 'Aktifkan notifikasi perangkat'
+    permissionButton.addEventListener('click', async () => {
+      const permission = await requestDeviceNotifications()
+      const subscribed = permission === 'granted' && await registerPushSubscription(profile.id)
+      permissionButton.textContent = subscribed ? 'Notifikasi perangkat aktif' : permission === 'denied' ? 'Notifikasi diblokir di browser' : 'Notifikasi belum tersedia'
+      permissionButton.disabled = subscribed
+    })
+    popover.append(permissionButton)
     if (!notifications.length) {
       const empty = document.createElement('p')
       empty.textContent = 'Belum ada aktivitas operasional terbaru.'
@@ -358,6 +410,42 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     window.addEventListener('faminis:data-changed', refresh)
     return () => { mounted = false; window.removeEventListener('faminis:data-changed', refresh) }
   }, [profile.id, active])
+
+  useEffect(() => {
+    if (!supabase) return
+    const client = supabase
+    const channel = client.channel(`transfer-notifications-${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_transfers' }, (payload) => {
+        if (payload.eventType === 'DELETE') return
+        const transfer = payload.new as { id?: string; source_location_id?: string; destination_location_id?: string; status?: string }
+        const isMaster = profile.role === 'MASTER' || profile.role === 'OWNER'
+        const isRelevant = isMaster || Boolean(profile.location_id && [transfer.source_location_id, transfer.destination_location_id].includes(profile.location_id))
+        if (!isRelevant || !transfer.status) return
+        const statusMessages: Record<string, string> = {
+          DRAFT: 'Transfer baru dibuat dan menunggu dikirim.',
+          REQUESTED: 'Transfer menunggu persetujuan.',
+          APPROVED: 'Transfer sudah disetujui dan siap diproses.',
+          SHIPPED: 'Transfer sedang dikirim ke lokasi tujuan.',
+          RECEIVED: 'Transfer sudah diterima dan menunggu finalisasi.',
+          COMPLETED: 'Transfer sudah selesai.',
+        }
+        const statusTitles: Record<string, string> = {
+          DRAFT: 'Transfer baru',
+          REQUESTED: 'Transfer menunggu persetujuan',
+          APPROVED: 'Transfer disetujui',
+          SHIPPED: 'Transfer sedang dikirim',
+          RECEIVED: 'Transfer sudah diterima',
+          COMPLETED: 'Transfer selesai',
+        }
+        const title = statusTitles[transfer.status] ?? 'Pembaruan transfer'
+        const message = statusMessages[transfer.status] ?? 'Ada perubahan pada transfer yang terkait dengan lokasi Anda.'
+        setTransferAlert({ title, message, status: transfer.status })
+        void showDeviceNotification(title, message)
+        window.dispatchEvent(new Event('faminis:data-changed'))
+      })
+      .subscribe()
+    return () => { void client.removeChannel(channel) }
+  }, [profile.id, profile.location_id, profile.role])
 
   const locationId = dashboard.locations.find((item) => item.name === location)?.id
   const visibleTransactions = dashboard.transactions.filter((item) => !locationId || item.location_id === locationId)
@@ -930,6 +1018,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         <div className="sidebar-bottom">{isMasterUser && <button className={`nav-item ${active === 'Pengaturan' ? 'active' : ''}`} onClick={() => setActive('Pengaturan')}><Settings size={18} /><span>Pengaturan</span></button>}<div className="sync-card"><div className="sync-line"><span className="live-dot"></span><strong>Sesi aman</strong></div><span>Terhubung ke Supabase</span></div><button className="profile-row" onClick={onLogout}><div className="avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div><span><strong>{profile.full_name}</strong><small>{profile.role}</small></span><ChevronDown size={15} /></button></div>
       </aside>
       <main className="main-content">
+        {transferAlert && <div className="transfer-alert" role="status"><div><strong>{transferAlert.title}</strong><p>{transferAlert.message}</p></div><button type="button" onClick={() => { setActive('Transfer'); setTransferAlert(null) }}>Buka transfer</button><button className="transfer-alert-close" type="button" aria-label="Tutup notifikasi transfer" onClick={() => setTransferAlert(null)}>×</button></div>}
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
           {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
@@ -1320,6 +1409,12 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const canChooseSource = profile.role === 'MASTER' || profile.role === 'OWNER'
   const allowedSources = canChooseSource ? locations : locations.filter((location) => location.id === profile.location_id)
 
+  async function sendTransferPush(transferId: string, status: string) {
+    if (!client) return
+    const { error: pushError } = await client.functions.invoke('send-transfer-push', { body: { transfer_id: transferId, status } })
+    if (pushError) console.warn('Transfer push could not be sent', pushError)
+  }
+
   const loadTransfers = useCallback(async () => {
     if (!client) return
     setLoading(true)
@@ -1373,9 +1468,10 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     const amount = Number(quantity)
     if (!source || !destination || source === destination || !productId || !Number.isInteger(amount) || amount <= 0) { setError('Source, tujuan, produk, dan quantity wajib diisi.'); return }
     setSaving(true); setError(''); setMessage('')
-    const { error: createError } = await client.rpc('create_transfer', { p_source_location_id: source, p_destination_location_id: destination, p_items: [{ product_id: productId, quantity: amount }], p_notes: note.trim() || null })
+    const { data: createdTransfer, error: createError } = await client.rpc('create_transfer', { p_source_location_id: source, p_destination_location_id: destination, p_items: [{ product_id: productId, quantity: amount }], p_notes: note.trim() || null })
     setSaving(false)
     if (createError) { setError(createError.message); return }
+    if (createdTransfer?.id) void sendTransferPush(createdTransfer.id, 'DRAFT')
     setMessage('Transfer DRAFT berhasil dibuat.'); setQuantity('1'); setNote(''); void loadTransfers()
   }
 
@@ -1385,6 +1481,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     const { error: transitionError } = await client.rpc('transition_transfer', { p_transfer_id: transfer.id, p_next_status: nextStatus, p_note: note.trim() || null })
     setSaving(false)
     if (transitionError) { setError(transitionError.message); return }
+    void sendTransferPush(transfer.id, nextStatus)
     setMessage(`Transfer berhasil menjadi ${nextStatus}.`); setNote(''); void loadTransfers(); window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
@@ -1421,6 +1518,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     setSaving(false)
     if (receiveError) { setError(receiveError.message); return }
 
+    void sendTransferPush(transfer.id, 'RECEIVED')
     setMessage('Penerimaan transfer berhasil dicatat.')
     void loadTransfers()
     window.dispatchEvent(new Event('faminis:data-changed'))
@@ -1527,8 +1625,8 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
 
   const transferSnapshot = {
     draft: transfers.filter((transfer) => transfer.status === 'DRAFT').length,
-    active: transfers.filter((transfer) => ['REQUESTED', 'APPROVED', 'SHIPPED'].includes(transfer.status)).length,
-    received: transfers.filter((transfer) => transfer.status === 'RECEIVED').length,
+    active: transfers.filter((transfer) => ['REQUESTED', 'APPROVED', 'SHIPPED', 'RECEIVED'].includes(transfer.status)).length,
+    received: transfers.filter((transfer) => transfer.status === 'COMPLETED').length,
   }
 
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">STOCK TRANSFERS</p><h1>Transfer</h1><p className="subtitle">Pindahkan stok melalui status DRAFT sampai COMPLETED.</p></div></div><div className="transfer-summary" aria-label="Ringkasan transfer"><div className="transfer-summary-card"><span>Draft</span><strong>{transferSnapshot.draft}</strong><small>Belum diproses</small></div><div className="transfer-summary-card"><span>Proses</span><strong>{transferSnapshot.active}</strong><small>Dalam alur antar lokasi</small></div><div className="transfer-summary-card warning"><span>Received</span><strong>{transferSnapshot.received}</strong><small>Menunggu finalisasi</small></div></div>{isOperationalUser && <div className="report-mode-tabs"><button type="button" className={`report-mode-tab ${transferTab === 'incoming' ? 'active' : ''}`} onClick={() => setTransferTab('incoming')}>Transfer Masuk</button><button type="button" className={`report-mode-tab ${transferTab === 'outgoing' ? 'active' : ''}`} onClick={() => setTransferTab('outgoing')}>Transfer Keluar</button></div>}<div className="operation-grid"><form className="panel operation-form" onSubmit={createTransfer}><div className="panel-heading"><div><h2>Buat transfer</h2><p>Stok belum berubah sampai tahap SHIPPED.</p></div></div><label>Dari<select value={source} onChange={(event) => setSource(event.target.value)} disabled={!canChooseSource}>{allowedSources.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Ke<select value={destination} onChange={(event) => setDestination(event.target.value)}>{locations.filter((location) => location.id !== source).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Catatan<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional, wajib untuk selisih saat menerima" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Buat transfer'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar transfer</h2><p>{transfers.length} transfer terlihat sesuai akses Anda</p></div></div>{loading ? <div className="empty-state">Memuat transfer...</div> : <div className="table-wrap"><table><thead><tr><th>Rute</th><th>Produk & Qty</th><th>Status</th><th>Tanggal</th><th>Kelola Draft</th><th>Aksi</th></tr></thead><tbody>{visibleTransfers.map((transfer) => { const items = transferItems.filter((item) => item.transfer_id === transfer.id); return <tr key={transfer.id}><td><strong>{locationName(transfer.source_location_id)} → {locationName(transfer.destination_location_id)}</strong><small className="table-subline">{transfer.notes ?? 'Tanpa catatan'}</small></td><td>{!items.length ? '—' : <div style={{ display: 'grid', gap: 4 }}>{items.map((item) => { const product = products.find((candidate) => candidate.id === item.product_id); return <div key={item.id}><strong>{product?.name ?? 'Produk'} </strong><span className="table-subline">{item.shipped_quantity} {product?.unit ?? 'unit'}</span></div> })}</div>}</td><td><span className={transferStatusClass(transfer.status)}>{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleDateString('id-ID')}</td><td>{renderDraftControls(transfer)}</td><td>{renderTransferAction(transfer)}</td></tr> })}</tbody></table>{!transfers.length && <div className="empty-state">Belum ada transfer.</div>}</div>}</div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}</section>

@@ -56,6 +56,7 @@ const UI_TRANSLATIONS: Record<string, string> = {
   Cash: 'Tunai',
   Credit: 'Kredit',
   Paid: 'Lunas',
+  Received: 'Selesai',
   DRAFT: 'DRAF',
   REQUESTED: 'DIMINTA',
   APPROVED: 'DISETUJUI',
