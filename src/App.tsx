@@ -295,7 +295,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }).join(' ')
   const chartFill = `${chartPoints} L660,190 L18,190 Z`
 
-  function downloadOperationsReport() {
+  function getOperationalReportData() {
     const scopeLocationIds = (profile.role === 'MASTER' || profile.role === 'OWNER')
       ? (location === 'All locations' ? dashboard.locations.map((item) => item.id) : [dashboard.locations.find((item) => item.name === location)?.id].filter(Boolean) as string[])
       : [profile.location_id].filter(Boolean) as string[]
@@ -364,49 +364,65 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       .filter((item) => scopeLocationIds.includes(item.location_id))
       .map((item) => ({
         movement_type: item.movement_type,
-        product: item.movement_type === 'SALE' || item.movement_type === 'PURCHASE' || item.movement_type === 'TRANSFER_IN' || item.movement_type === 'TRANSFER_OUT' || item.movement_type === 'ADJUSTMENT'
-          ? 'Lihat referensi detail produk'
-          : 'Lihat detail produk',
         location: locationName(item.location_id),
         quantity: Number(item.quantity),
         created_at: new Date(item.created_at).toISOString(),
       }))
 
-    const summaryRows = [
-      ['Laporan', 'Operasional Faminis'],
-      ['Role user', profile.role],
-      ['Batas lokasi', scopeLocationIds.length ? scopeLocationIds.map((id) => locationName(id)).join(' | ') : 'Tidak ada lokasi'],
-      ['Total omzet', formatCurrency(salesRows.reduce((sum, item) => sum + Number(item.grand_total), 0))],
-      ['Jumlah transaksi', String(salesRows.length)],
-      ['Jumlah transfer', String(transferRows.length)],
-      ['Jumlah pembelian', String(purchaseRows.length)],
-      ['Jumlah stok menipis', String(stockRows.filter((item) => item.quantity <= 5).length)],
-      ['Total stok tersedia', String(stockRows.reduce((sum, item) => sum + item.quantity, 0))],
-      ['Tanggal export', new Date().toLocaleString('id-ID')],
-    ]
+    return {
+      scopeLocationIds,
+      locationName,
+      salesRows,
+      transferRows,
+      purchaseRows,
+      stockRows,
+      movementRows,
+      summary: {
+        role: profile.role,
+        locationScope: scopeLocationIds.length ? scopeLocationIds.map((id) => locationName(id)).join(' | ') : 'Tidak ada lokasi',
+        totalRevenue: salesRows.reduce((sum, item) => sum + Number(item.grand_total), 0),
+        totalTransactions: salesRows.length,
+        totalTransfers: transferRows.length,
+        totalPurchases: purchaseRows.length,
+        lowStockCount: stockRows.filter((item) => item.quantity <= 5).length,
+        totalStock: stockRows.reduce((sum, item) => sum + item.quantity, 0),
+      },
+    }
+  }
 
+  function downloadCsvReport() {
+    const report = getOperationalReportData()
     const csvData = [
-      ...summaryRows,
+      ['Laporan', 'Operasional Faminis'],
+      ['Role user', report.summary.role],
+      ['Batas lokasi', report.summary.locationScope],
+      ['Total omzet', formatCurrency(report.summary.totalRevenue)],
+      ['Jumlah transaksi', String(report.summary.totalTransactions)],
+      ['Jumlah transfer', String(report.summary.totalTransfers)],
+      ['Jumlah pembelian', String(report.summary.totalPurchases)],
+      ['Jumlah stok menipis', String(report.summary.lowStockCount)],
+      ['Total stok tersedia', String(report.summary.totalStock)],
+      ['Tanggal export', new Date().toLocaleString('id-ID')],
       [],
       ['SALES'],
       ['invoice_no', 'location', 'items', 'grand_total', 'created_at', 'payment_status'],
-      ...salesRows.map((row) => [row.invoice_no, row.location, row.items, row.grand_total, row.created_at, row.payment_status]),
+      ...report.salesRows.map((row) => [row.invoice_no, row.location, row.items, row.grand_total, row.created_at, row.payment_status]),
       [],
       ['TRANSFERS'],
       ['transfer_id', 'source', 'destination', 'status', 'items', 'notes', 'created_at'],
-      ...transferRows.map((row) => [row.transfer_id, row.source, row.destination, row.status, row.items, row.notes, row.created_at]),
+      ...report.transferRows.map((row) => [row.transfer_id, row.source, row.destination, row.status, row.items, row.notes, row.created_at]),
       [],
       ['PURCHASES'],
       ['supplier', 'location', 'items', 'created_at'],
-      ...purchaseRows.map((row) => [row.supplier, row.location, row.items, row.created_at]),
+      ...report.purchaseRows.map((row) => [row.supplier, row.location, row.items, row.created_at]),
       [],
       ['STOCK'],
       ['product', 'location', 'quantity'],
-      ...stockRows.map((row) => [row.product, row.location, row.quantity]),
+      ...report.stockRows.map((row) => [row.product, row.location, row.quantity]),
       [],
       ['MOVEMENTS'],
       ['movement_type', 'location', 'quantity', 'created_at'],
-      ...movementRows.map((row) => [row.movement_type, row.location, row.quantity, row.created_at]),
+      ...report.movementRows.map((row) => [row.movement_type, row.location, row.quantity, row.created_at]),
     ]
 
     const csvRows = csvData
@@ -422,6 +438,124 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     anchor.download = `laporan-operasional-${new Date().toISOString().slice(0, 10)}.csv`
     anchor.click()
     URL.revokeObjectURL(url)
+  }
+
+  function downloadPdfReport() {
+    const report = getOperationalReportData()
+    const tableRows = (rows: Array<{ [key: string]: string | number }>, headers: string[]) => `
+      <table>
+        <thead>
+          <tr>${headers.map((header) => `<th>${header}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `<tr>${headers.map((header) => `<td>${row[header] ?? '-'}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    `
+
+    const salesHeaders = ['invoice_no', 'location', 'items', 'grand_total', 'created_at']
+    const transferHeaders = ['transfer_id', 'source', 'destination', 'status', 'items', 'created_at']
+    const purchaseHeaders = ['supplier', 'location', 'items', 'created_at']
+    const stockHeaders = ['product', 'location', 'quantity']
+    const movementHeaders = ['movement_type', 'location', 'quantity', 'created_at']
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=900')
+    if (!printWindow) return
+
+    const summaryHtml = `
+      <div class="summary-box">
+        <div><strong>Role</strong><span>${report.summary.role}</span></div>
+        <div><strong>Lokasi</strong><span>${report.summary.locationScope}</span></div>
+        <div><strong>Omzet</strong><span>${formatCurrency(report.summary.totalRevenue)}</span></div>
+        <div><strong>Transaksi</strong><span>${report.summary.totalTransactions}</span></div>
+        <div><strong>Transfer</strong><span>${report.summary.totalTransfers}</span></div>
+        <div><strong>Pembelian</strong><span>${report.summary.totalPurchases}</span></div>
+      </div>
+    `
+
+    const html = `
+      <!doctype html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Laporan Operasional Faminis</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 24px; color: #1f1a17; }
+          h1 { margin: 0 0 12px; font-size: 28px; }
+          .subtitle { color: #6b5e55; margin-bottom: 18px; }
+          .summary-box { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 12px; margin-bottom: 24px; }
+          .summary-box div { background: #f8f1ec; border: 1px solid #e7d8ce; border-radius: 10px; padding: 12px; }
+          .summary-box strong { display: block; font-size: 11px; text-transform: uppercase; color: #7d6a60; margin-bottom: 4px; }
+          .summary-box span { font-size: 14px; font-weight: 600; }
+          section { margin-top: 18px; }
+          h2 { font-size: 18px; margin: 0 0 10px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+          th, td { border: 1px solid #e6dcd5; padding: 8px 10px; text-align: left; vertical-align: top; }
+          th { background: #efe3db; }
+          tbody tr:nth-child(even) { background: #faf6f4; }
+          .muted { color: #6b5e55; }
+          @media print { body { margin: 0; } }
+        </style>
+      </head>
+      <body>
+        <h1>Laporan Operasional Faminis</h1>
+        <div class="subtitle">Dibuat: ${new Date().toLocaleString('id-ID')}</div>
+        ${summaryHtml}
+        <section>
+          <h2>Penjualan</h2>
+          ${tableRows(report.salesRows.map((row) => ({
+            invoice_no: row.invoice_no,
+            location: row.location,
+            items: row.items,
+            grand_total: formatCurrency(Number(row.grand_total)),
+            created_at: new Date(row.created_at).toLocaleString('id-ID'),
+          })), salesHeaders)}
+        </section>
+        <section>
+          <h2>Transfer</h2>
+          ${tableRows(report.transferRows.map((row) => ({
+            transfer_id: row.transfer_id,
+            source: row.source,
+            destination: row.destination,
+            status: row.status,
+            items: row.items,
+            created_at: new Date(row.created_at).toLocaleString('id-ID'),
+          })), transferHeaders)}
+        </section>
+        <section>
+          <h2>Pembelian</h2>
+          ${tableRows(report.purchaseRows.map((row) => ({
+            supplier: row.supplier,
+            location: row.location,
+            items: row.items,
+            created_at: new Date(row.created_at).toLocaleString('id-ID'),
+          })), purchaseHeaders)}
+        </section>
+        <section>
+          <h2>Stok</h2>
+          ${tableRows(report.stockRows.map((row) => ({
+            product: row.product,
+            location: row.location,
+            quantity: row.quantity,
+          })), stockHeaders)}
+        </section>
+        <section>
+          <h2>Pergerakan stok</h2>
+          ${tableRows(report.movementRows.map((row) => ({
+            movement_type: row.movement_type,
+            location: row.location,
+            quantity: row.quantity,
+            created_at: new Date(row.created_at).toLocaleString('id-ID'),
+          })), movementHeaders)}
+        </section>
+      </body>
+      </html>
+    `
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+    printWindow.close()
   }
 
   const pageTitle = active === 'Ringkasan' ? `Selamat pagi, ${profile.full_name.split(' ')[0]}.` : active
@@ -444,7 +578,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
           {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : <>
-          <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={downloadOperationsReport}><ArrowDownToLine size={16} /> Unduh laporan</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
+          <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={downloadCsvReport}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" onClick={downloadPdfReport}><ArrowDownToLine size={16} /> PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'} <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
           <section className="metrics-grid"><MetricCard label="Total omzet" value={dashboardState === 'loading' ? 'Memuat...' : formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Jumlah transaksi" value={dashboardState === 'loading' ? 'Memuat...' : String(visibleTransactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /><MetricCard label="Barang terjual" value={dashboardState === 'loading' ? 'Memuat...' : formatNumber(itemsSold)} change="Data terbaru" tone="orange" icon={Package} /><MetricCard label="Stok menipis" value={dashboardState === 'loading' ? 'Memuat...' : String(lowStock)} change={lowStock ? 'Perlu diperiksa' : 'Stok aman'} tone={lowStock ? 'red' : 'green'} icon={Boxes} /></section>
