@@ -4,6 +4,24 @@
 .login-brand { padding: 0 0 34px; }
 .login-card h1 { margin: 4px 0 8px; color: #3d3029; font-family: Georgia, serif; font-size: 34px; font-weight: 600; letter-spacing: -1px; }
 .login-card form { display: grid; gap: 15px; margin-top: 27px; }.login-card label { display: grid; gap: 6px; color: #74665d; font-size: 11px; font-weight: 600; }.login-card input { width: 100%; padding: 11px 12px; border: 1px solid #e4dcd4; border-radius: 7px; outline: 0; color: #4d3d34; background: #fff; font-size: 12px; }.login-card input:focus { border-color: #9c603c; box-shadow: 0 0 0 3px #f4e7dd; }.login-submit { justify-content: center; width: 100%; margin-top: 5px; }.login-submit:disabled { cursor: wait; opacity: .7; }.form-error { margin: 0; color: #ad5e53; font-size: 11px; }.profile-row { border: 0; width: 100%; background: transparent; text-align: left; cursor: pointer; }
+
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #eee3d8; border-radius: 12px; background: #faf5f1; }
+.toggle-row span { color: #4b362d; font-size: 13px; font-weight: 600; }
+.toggle-row.compact { padding: 8px 10px; }
+.toggle-control { position: relative; width: 52px; height: 30px; border: none; border-radius: 999px; background: #d8c7b9; cursor: pointer; transition: background .2s ease; }
+.toggle-control.enabled { background: #6d4e3a; }
+.toggle-control.disabled { background: #d9d0c7; }
+.toggle-thumb { position: absolute; top: 4px; left: 4px; width: 22px; height: 22px; border-radius: 50%; background: white; box-shadow: 0 2px 8px rgba(0,0,0,.12); transition: transform .2s ease; }
+.toggle-control.enabled .toggle-thumb { transform: translateX(22px); }
+
+.customer-form, .settings-form { display: grid; gap: 16px; }
+.two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.inline-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.inline-actions.compact { gap: 8px; }
+.text-button.danger { color: #b23c3c; }
+.status.positive { background: #edf9f1; color: #1e7a4d; }
+.status.negative { background: #fef1f1; color: #b63d3d; }
+.muted-text { margin-top: 4px; color: #7d645b; font-size: 12px; }
 .profile-help { margin: 20px 0 4px; padding: 12px; border-radius: 7px; background: #f8eee7; color: #856451; font-size: 11px; line-height: 1.6; }.profile-help code { color: #5d3b2c; font-family: Consolas, monospace; font-size: 10px; }
 .login-actions { display: flex; gap: 8px; margin-top: 18px; }.login-actions .button { flex: 1; justify-content: center; }
 .data-error { margin: -5px 0 14px; padding: 10px 12px; border: 1px solid #efd3ce; border-radius: 7px; background: #fff4f1; color: #a35e55; font-size: 11px; }.empty-state { padding: 22px; color: #a59b93; font-size: 11px; text-align: center; }
