@@ -63,6 +63,7 @@ type StockRecord = { product_id: string; location_id: string; quantity: number }
 type StockRow = StockRecord & { product?: ProductRecord }
 type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }
 type TransferItemRecord = { id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }
+type NotificationRecord = { id: string; action: string; description: string | null; created_at: string }
 
 const PRODUCT_CATEGORY_PREFIXES: Record<string, string> = {
   Mukena: 'MKN',
@@ -273,6 +274,59 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     purchaseItems: [],
   })
   const [dashboardState, setDashboardState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([])
+
+  useEffect(() => {
+    if (!supabase) return
+    let mounted = true
+    void supabase.from('audit_logs').select('id, action, description, created_at').order('created_at', { ascending: false }).limit(5).then(({ data }) => {
+      if (mounted) setNotifications((data ?? []) as NotificationRecord[])
+    })
+    return () => { mounted = false }
+  }, [profile.id])
+
+  useEffect(() => {
+    const button = document.querySelector<HTMLButtonElement>('.notification')
+    if (!button) return
+    const container = button.closest<HTMLElement>('.top-actions') ?? button.parentElement
+    if (!container) return
+    const popover = document.createElement('div')
+    popover.className = 'notification-popover'
+    popover.setAttribute('role', 'dialog')
+    popover.setAttribute('aria-label', 'Notifikasi aktivitas')
+    const heading = document.createElement('strong')
+    heading.textContent = 'Aktivitas terbaru'
+    popover.append(heading)
+    if (!notifications.length) {
+      const empty = document.createElement('p')
+      empty.textContent = 'Belum ada aktivitas operasional terbaru.'
+      popover.append(empty)
+    } else {
+      const list = document.createElement('div')
+      list.className = 'notification-list'
+      notifications.forEach((item) => {
+        const entry = document.createElement('article')
+        const action = document.createElement('strong')
+        action.textContent = item.action
+        const description = document.createElement('span')
+        description.textContent = item.description ?? 'Aktivitas operasional'
+        const date = document.createElement('small')
+        date.textContent = new Date(item.created_at).toLocaleString('id-ID')
+        entry.append(action, description, date)
+        list.append(entry)
+      })
+      popover.append(list)
+    }
+    popover.hidden = true
+    container.append(popover)
+    const handleNotificationClick = () => {
+      popover.hidden = !popover.hidden
+      button.setAttribute('aria-expanded', String(!popover.hidden))
+    }
+    button.setAttribute('aria-expanded', 'false')
+    button.addEventListener('click', handleNotificationClick)
+    return () => { button.removeEventListener('click', handleNotificationClick); popover.remove() }
+  }, [notifications])
 
   useEffect(() => {
     if (!supabase) return
@@ -1039,13 +1093,9 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
       document.body.style.overflow = 'hidden'
     })
     page.append(button)
-    return () => {
-      button.remove()
-      page.querySelector<HTMLElement>('.cart-panel')?.classList.remove('cart-panel-popup')
-      page.querySelector('.floating-cart-backdrop')?.remove()
-      document.body.style.overflow = ''
-    }
+    return () => button.remove()
   }, [cartItemCount])
+  useEffect(() => () => { document.body.style.overflow = '' }, [])
   const filteredProducts = products.filter((product) => {
     const productCategoryId = getProductCategoryId(product, categories)
     const matchesCategory = selectedCategoryId === 'all' || productCategoryId === selectedCategoryId
@@ -1269,7 +1319,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [transferItems, setTransferItems] = useState<TransferItemRecord[]>([])
   const [products, setProducts] = useState<ProductRecord[]>([])
   const isOperationalUser = profile.role !== 'MASTER'
-  const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('incoming')
+  const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('outgoing')
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
@@ -1478,9 +1528,8 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     ? transfers.filter((transfer) => {
         const isIncoming = transfer.destination_location_id === profile.location_id
         const isOutgoing = transfer.source_location_id === profile.location_id
-        if (transferTab === 'incoming') return isIncoming
-        if (transferTab === 'outgoing') return isOutgoing
-        return isIncoming || isOutgoing
+        const canReceiveIncoming = isIncoming && ['SHIPPED', 'RECEIVED'].includes(transfer.status)
+        return isOutgoing || canReceiveIncoming
       })
     : transfers
 
@@ -1519,6 +1568,20 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     { key: 'transfer-keluar', label: 'Transfer Keluar' },
     { key: 'stok', label: 'Stok' },
   ] : []
+  const renderReportModeTabs = () => isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>
+  const scopedLocation = location === 'all' ? profile.location_id : location
+  const transferDetailText = (transferId: string) => data.transferItems.filter((item) => item.transfer_id === transferId).map((item) => `${productName(item.product_id)} x${item.shipped_quantity}`).join(', ') || 'Detail produk belum tersedia'
+  const modeTransfers = data.transfers.filter((transfer) => {
+    const matchesLocation = !scopedLocation || transfer.source_location_id === scopedLocation || transfer.destination_location_id === scopedLocation
+    const matchesMode = reportMode === 'transfer-masuk' ? transfer.destination_location_id === profile.location_id : transfer.source_location_id === profile.location_id
+    return matchesLocation && matchesMode
+  }).map((transfer) => ({ ...transfer, status: `${transfer.status} · ${transferDetailText(transfer.id)}` }))
+  const modeStock = data.stock.filter((stock) => !scopedLocation || stock.location_id === scopedLocation)
+  if (isOperationalUser && reportMode !== 'penjualan') {
+    const isStockReport = reportMode === 'stok'
+    const title = isStockReport ? 'Laporan stok' : reportMode === 'transfer-masuk' ? 'Transfer masuk' : 'Transfer keluar'
+    return <section className="module-page reports-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{title}</h1><p className="subtitle">Data operasional sesuai lokasi Anda.</p></div></div>{renderReportModeTabs()}<div className="panel table-panel"><div className="panel-heading"><div><h2>{isStockReport ? 'Stok per lokasi' : title}</h2><p>{isStockReport ? `${modeStock.length} baris stok` : `${modeTransfers.length} transfer tercatat`}</p></div></div><div className="table-wrap">{isStockReport ? <table><thead><tr><th>Produk</th><th>Lokasi</th><th>Jumlah</th><th>Status</th></tr></thead><tbody>{modeStock.map((stock) => <tr key={`${stock.location_id}:${stock.product_id}`}><td><strong>{productName(stock.product_id)}</strong></td><td>{locationName(stock.location_id)}</td><td>{formatNumber(Number(stock.quantity))}</td><td><span className={Number(stock.quantity) <= 5 ? 'status negative' : 'status positive'}>{Number(stock.quantity) <= 5 ? 'Menipis' : 'Aman'}</span></td></tr>)}</tbody></table> : <table><thead><tr><th>Transfer</th><th>Dari</th><th>Ke</th><th>Status</th><th>Tanggal</th></tr></thead><tbody>{modeTransfers.map((transfer) => <tr key={transfer.id}><td><strong>{transfer.id.replace(/-/g, '').slice(0, 8).toUpperCase()}</strong></td><td>{locationName(transfer.source_location_id)}</td><td>{locationName(transfer.destination_location_id)}</td><td><span className="transfer-badge">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleString('id-ID')}</td></tr>)}</tbody></table>}{(isStockReport ? !modeStock.length : !modeTransfers.length) && <div className="empty-state">Belum ada data untuk mode laporan ini.</div>}</div></div></section>
+  }
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}><label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)}><option value="all">All locations</option>{data.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" onClick={onDownloadCsv}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" onClick={onDownloadPdf}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}<div className="report-cards"><MetricCard label="Revenue" value={formatCurrency(revenue)} change="Live data" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transactions" value={formatNumber(transactions.length)} change="Live data" tone="green" icon={ShoppingCart} /><MetricCard label="Average sale" value={formatCurrency(transactions.length ? revenue / transactions.length : 0)} change="Calculated" tone="orange" icon={CircleDollarSign} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div></section>
 }
 
