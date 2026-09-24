@@ -1641,12 +1641,20 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const renderTransferAction = (transfer: TransferRecord) => {
     const nextAction = actionFor(transfer)
     if (!nextAction) return <span className="muted-text">Menunggu tahap lanjut</span>
+    const actionLabels: Record<string, string> = {
+      REQUESTED: 'Kirim permintaan',
+      APPROVED: 'Setujui permintaan',
+      SHIPPED: 'Kirim barang',
+      RECEIVED: 'Terima barang',
+      COMPLETED: 'Selesaikan transfer',
+    }
+    const actionLabel = actionLabels[nextAction] ?? nextAction
     if (transfer.status === 'DRAFT') {
-      return <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{nextAction}</button>
+      return <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{actionLabel}</button>
     }
     const buttonAction = nextAction === 'RECEIVED'
-      ? <button className="text-button" type="button" disabled={saving} onClick={() => void receiveTransfer(transfer)}>{nextAction}</button>
-      : <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{nextAction}</button>
+      ? <button className="text-button" type="button" disabled={saving} onClick={() => void receiveTransfer(transfer)}>{actionLabel}</button>
+      : <button className="text-button" type="button" disabled={saving} onClick={() => void transition(transfer, nextAction)}>{actionLabel}</button>
     return buttonAction
   }
 
@@ -1654,8 +1662,8 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     ? transfers.filter((transfer) => {
         const isIncoming = transfer.destination_location_id === profile.location_id
         const isOutgoing = transfer.source_location_id === profile.location_id
-        const canReceiveIncoming = isIncoming && ['SHIPPED', 'RECEIVED'].includes(transfer.status)
-        return isOutgoing || canReceiveIncoming
+        const canReceiveIncoming = isIncoming && transfer.status !== 'DRAFT'
+        return transferTab === 'incoming' ? canReceiveIncoming : isOutgoing
       })
     : transfers
 
