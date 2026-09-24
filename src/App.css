@@ -462,8 +462,6 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
 .report-mode-tab { min-height: 36px; padding: 8px 16px; border: 0; border-radius: 9px; background: transparent; color: #65706a; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .report-mode-tab:hover { background: var(--retro-blue); color: var(--retro-ink); }
 .report-mode-tab.active { background: var(--retro-yellow); color: var(--retro-ink); box-shadow: 2px 2px 0 var(--retro-ink); }
-.module-page:has(.transfer-summary) .report-mode-tabs .report-mode-tab:first-child { display: none; }
-.module-page:has(.transfer-summary) .report-mode-tabs { grid-template-columns: 1fr; }
 .module-page .button-primary { color: var(--retro-white); font-weight: 800; text-shadow: 0 1px 0 rgba(0, 0, 0, .18); }
 
 @media (min-width: 781px) {
