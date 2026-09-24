@@ -384,7 +384,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       .filter((entry) => new Date(entry.created_at).toISOString().slice(0, 10) === key)
       .reduce((sum, entry) => sum + Number(entry.grand_total), 0)
     return {
-      label: date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }).replace('.', '').replace('.', ''),
+      label: date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }),
       total,
     }
   })
@@ -1042,31 +1042,42 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     button.className = 'floating-cart-button'
     button.setAttribute('aria-label', `Buka cart, ${cartItemCount} barang`)
     button.innerHTML = `<span class="floating-cart-icon" aria-hidden="true">🛒</span><span>Cart</span><em>${cartItemCount}</em>`
+    const panel = page.querySelector<HTMLElement>('.cart-panel')
+    const heading = panel?.querySelector<HTMLElement>('.panel-heading')
+    const closeButton = document.createElement('button')
+    closeButton.type = 'button'
+    closeButton.className = 'cart-close-button'
+    closeButton.setAttribute('aria-label', 'Tutup cart')
+    closeButton.textContent = '×'
+    heading?.append(closeButton)
+    const closeCart = () => {
+      panel?.classList.remove('cart-panel-popup')
+      page.querySelector('.floating-cart-backdrop')?.remove()
+      document.body.style.overflow = ''
+    }
+    closeButton?.addEventListener('click', closeCart)
     button.addEventListener('click', () => {
-      const panel = page.querySelector<HTMLElement>('.cart-panel')
       if (!panel) return
       const existingBackdrop = page.querySelector('.floating-cart-backdrop')
       if (existingBackdrop) {
-        panel.classList.remove('cart-panel-popup')
-        existingBackdrop.remove()
-        document.body.style.overflow = ''
+        closeCart()
         return
       }
       const backdrop = document.createElement('button')
       backdrop.type = 'button'
       backdrop.className = 'floating-cart-backdrop'
       backdrop.setAttribute('aria-label', 'Tutup cart')
-      backdrop.addEventListener('click', () => {
-        panel.classList.remove('cart-panel-popup')
-        backdrop.remove()
-        document.body.style.overflow = ''
-      })
+      backdrop.addEventListener('click', closeCart)
       panel.classList.add('cart-panel-popup')
       page.append(backdrop)
       document.body.style.overflow = 'hidden'
     })
     page.append(button)
-    return () => button.remove()
+    return () => {
+      button.remove()
+      closeButton?.removeEventListener('click', closeCart)
+      closeButton?.remove()
+    }
   }, [cartItemCount])
   useEffect(() => () => { document.body.style.overflow = '' }, [])
   const filteredProducts = products.filter((product) => {
