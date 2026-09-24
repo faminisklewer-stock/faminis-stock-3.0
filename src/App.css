@@ -469,6 +469,12 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
 .module-page:has(.toggle-row) .table-wrap th:nth-child(4), .module-page:has(.toggle-row) .table-wrap td:nth-child(4) { width: 16%; }
 .module-page:has(.toggle-row) .table-wrap th:nth-child(5), .module-page:has(.toggle-row) .table-wrap td:nth-child(5) { width: 14%; }
 .module-page:has(.toggle-row) .table-wrap td select { width: 100%; min-width: 0; }
+.module-page:has(.toggle-row) .table-wrap { overflow: visible; }
+.module-page:has(.toggle-row) .table-wrap table { width: 100%; }
+.module-page:has(.toggle-row) .table-wrap tbody tr { height: 62px; }
+.module-page:has(.toggle-row) .table-wrap tbody td { vertical-align: middle; }
+.module-page:has(.toggle-row) .table-wrap tbody td select { min-width: 132px; min-height: 38px; padding: 7px 10px; }
+.module-page:has(.toggle-row) .table-wrap tbody td:nth-child(3) select { min-width: 180px; }
 .customer-form, .settings-form { max-width: 980px; gap: 18px; }
 .customer-form .two-col, .settings-form .two-col { grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 16px; }
 .customer-form label, .settings-form label { color: #53605a; font-size: 11px; font-weight: 800; }
@@ -553,7 +559,7 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
   .module-page:has(.toggle-row) .table-wrap td:nth-child(3)::before { content: 'Lokasi'; }
   .module-page:has(.toggle-row) .table-wrap td:nth-child(4)::before { content: 'Status'; }
   .module-page:has(.toggle-row) .table-wrap td:nth-child(5)::before { content: 'Aksi'; }
-  .module-page:has(.toggle-row) .table-wrap td select { width: 100%; min-height: 40px; font-size: 13px; }
+  .module-page:has(.toggle-row) .table-wrap td select { width: 100%; min-width: 0; min-height: 40px; font-size: 13px; }
   .module-page:has(.toggle-row) .table-wrap .toggle-row { width: 100%; min-height: 40px; padding: 4px 8px; }
 }
 
