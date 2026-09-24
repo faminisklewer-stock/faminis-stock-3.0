@@ -940,7 +940,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           </>}
         </div>
       </main>
-      <nav className="mobile-nav" aria-label="Navigasi utama mobile">
+      <nav className={`mobile-nav mobile-nav-count-${mobilePrimaryItems.length + (mobileMoreItems.length > 0 ? 1 : 0)}`} aria-label="Navigasi utama mobile">
         {mobilePrimaryItems.map(({ label, icon: Icon, badge }: { label: string; icon: typeof LayoutDashboard; badge?: string }) => <button key={label} className={`mobile-nav-item ${active === label ? 'active' : ''}`} onClick={() => { setActive(label); setMobileMoreOpen(false) }} aria-current={active === label ? 'page' : undefined}><span className="mobile-nav-icon"><Icon size={18} />{badge && <em>{badge}</em>}</span><span>{label}</span></button>)}
         {mobileMoreItems.length > 0 && <button className={`mobile-nav-item ${mobileMoreOpen || !mobilePrimaryItems.some((item) => item.label === active) ? 'active' : ''}`} onClick={() => setMobileMoreOpen((current) => !current)} aria-expanded={mobileMoreOpen}><span className="mobile-nav-icon"><Grid2X2 size={18} /></span><span>Lainnya</span></button>}
       </nav>
