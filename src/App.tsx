@@ -490,14 +490,35 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     const printWindow = window.open('', '_blank', 'width=1200,height=900')
     if (!printWindow) return
 
+    const locationChartRows = locationRevenue.length
+      ? locationRevenue.slice(0, 6).map((item) => {
+        const percent = Math.max(8, (item.total / Math.max(...locationRevenue.map((entry) => entry.total), 1)) * 100)
+        return `
+          <div class="chart-row">
+            <div class="chart-meta"><span>${item.name}</span><strong>${formatCurrency(item.total)}</strong></div>
+            <div class="chart-track"><i style="width:${percent}%"></i></div>
+          </div>
+        `
+      }).join('')
+      : '<div class="empty-note">Belum ada data untuk chart lokasi.</div>'
+
     const summaryHtml = `
-      <div class="summary-box">
-        <div><strong>Role</strong><span>${report.summary.role}</span></div>
-        <div><strong>Lokasi</strong><span>${report.summary.locationScope}</span></div>
-        <div><strong>Omzet</strong><span>${formatCurrency(report.summary.totalRevenue)}</span></div>
-        <div><strong>Transaksi</strong><span>${report.summary.totalTransactions}</span></div>
-        <div><strong>Transfer</strong><span>${report.summary.totalTransfers}</span></div>
-        <div><strong>Pembelian</strong><span>${report.summary.totalPurchases}</span></div>
+      <div class="summary-shell">
+        <div class="summary-box">
+          <div><strong>Role</strong><span>${report.summary.role}</span></div>
+          <div><strong>Lokasi</strong><span>${report.summary.locationScope}</span></div>
+          <div><strong>Omzet</strong><span>${formatCurrency(report.summary.totalRevenue)}</span></div>
+          <div><strong>Transaksi</strong><span>${report.summary.totalTransactions}</span></div>
+          <div><strong>Transfer</strong><span>${report.summary.totalTransfers}</span></div>
+          <div><strong>Pembelian</strong><span>${report.summary.totalPurchases}</span></div>
+        </div>
+        <div class="chart-card">
+          <div class="card-title">
+            <span>Revenue by location</span>
+            <strong>${formatCurrency(Math.max(...locationRevenue.map((item) => item.total), 0))}</strong>
+          </div>
+          ${locationChartRows}
+        </div>
       </div>
     `
 
@@ -584,11 +605,16 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             font-size: 12px;
             font-weight: 600;
           }
+          .summary-shell {
+            display: grid;
+            grid-template-columns: 1.6fr 1fr;
+            gap: 18px;
+            margin: 24px 0 28px;
+          }
           .summary-box {
             display: grid;
-            grid-template-columns: repeat(6, minmax(120px, 1fr));
+            grid-template-columns: repeat(3, minmax(120px, 1fr));
             gap: 12px;
-            margin: 24px 0 28px;
           }
           .summary-box div {
             background: var(--panel);
@@ -610,13 +636,60 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             font-weight: 700;
             color: var(--brand);
           }
+          .chart-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 8px 18px rgba(93, 52, 35, 0.04);
+          }
+          .card-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--muted);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+          .card-title strong {
+            color: var(--brand);
+            font-size: 15px;
+            letter-spacing: 0;
+            text-transform: none;
+          }
+          .chart-row {
+            margin-top: 10px;
+          }
+          .chart-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11px;
+            margin-bottom: 5px;
+            color: var(--text);
+          }
+          .chart-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: #f4e8e2;
+            overflow: hidden;
+          }
+          .chart-track i {
+            display: block;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #7d4a38, #b57d5f);
+          }
           section {
             margin-top: 22px;
             page-break-inside: avoid;
           }
           h2 {
             font-size: 18px;
-            margin: 0 0 8px;
+            margin: 0 0 10px;
             color: var(--brand);
           }
           .location-group {
@@ -666,6 +739,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           @media print {
             body { margin: 16px; }
             section { margin-top: 18px; }
+            .summary-shell { grid-template-columns: 1.5fr 1fr; }
           }
         </style>
       </head>
