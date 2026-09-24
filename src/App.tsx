@@ -918,7 +918,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       <main className="main-content">
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Pelanggan' ? <CustomersView /> : active === 'Akses tim' ? <TeamAccessView profile={profile} /> : active === 'Pengaturan' ? <SettingsView /> : <>
           <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'} <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
@@ -1460,6 +1460,38 @@ function PurchasesView({ profile, locations }: { profile: Profile; locations: Ar
   }
   if (!canPurchase) return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PURCHASES</p><h1>Akses terbatas</h1><p className="subtitle">Hanya MASTER dan WAREHOUSE yang dapat mencatat penerimaan barang.</p></div></div></section>
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PURCHASES</p><h1>Receive stock</h1><p className="subtitle">Catat barang masuk melalui transaksi database atomic.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)}>{locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><div className="panel purchase-form"><label>Supplier<input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Nama supplier" /></label><label>Product<input value={selectedProduct ? `${selectedProduct.sku} - ${selectedProduct.name}` : sku} onChange={(event) => { setSku(event.target.value); setProductId('') }} placeholder="Cari SKU atau nama produk" />{sku && !selectedProduct && <div className="suggestions">{matches.map((product) => <button key={product.id} onClick={() => { setProductId(product.id); setSku(product.sku) }}>{product.sku} - {product.name}</button>)}</div>}</label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" onClick={() => void savePurchase()} disabled={loading}>{loading ? 'Saving...' : 'Save purchase'}</button></div></section>
+}
+
+function CustomersView() {
+  const customers = [
+    { name: 'Konsumen Umum', segment: 'Retail', lastOrder: '2 hari lalu', lifetime: 'Rp 1.200.000' },
+    { name: 'Mitra Reseller', segment: 'Reseller', lastOrder: '5 hari lalu', lifetime: 'Rp 3.450.000' },
+    { name: 'Toko Keluarga', segment: 'B2B', lastOrder: 'Hari ini', lifetime: 'Rp 2.780.000' },
+  ]
+
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">CUSTOMERS</p><h1>Pelanggan</h1><p className="subtitle">Kelola daftar pelanggan dan historis pembelian.</p></div></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar pelanggan</h2><p>{customers.length} pelanggan terdaftar</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Segmen</th><th>Order terakhir</th><th>Lifetime value</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.name}><td><strong>{customer.name}</strong></td><td>{customer.segment}</td><td>{customer.lastOrder}</td><td>{customer.lifetime}</td></tr>)}</tbody></table></div></div></section>
+}
+
+function TeamAccessView({ profile }: { profile: Profile }) {
+  const members = [
+    { name: profile.full_name, role: profile.role, location: 'Semua lokasi', status: 'Aktif' },
+    { name: 'Ayu Fitri', role: 'WAREHOUSE', location: 'Gudang', status: 'Aktif' },
+    { name: 'Rizal Maulana', role: 'LIVE', location: 'Live', status: 'Aktif' },
+    { name: 'Nisa Rahma', role: 'RUKO', location: 'Ruko 1', status: 'Menunggu' },
+  ]
+
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">TEAM ACCESS</p><h1>Akses tim</h1><p className="subtitle">Atur akses role dan lokasi tiap anggota tim.</p></div></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar akses</h2><p>{members.length} anggota</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Role</th><th>Lokasi</th><th>Status</th></tr></thead><tbody>{members.map((member) => <tr key={member.name}><td><strong>{member.name}</strong></td><td>{member.role}</td><td>{member.location}</td><td>{member.status}</td></tr>)}</tbody></table></div></div></section>
+}
+
+function SettingsView() {
+  const settings = [
+    { label: 'Low stock threshold', value: '5 pcs' },
+    { label: 'Default unit', value: 'pcs' },
+    { label: 'Currency', value: 'IDR' },
+    { label: 'Alamat toko', value: 'Jl. Raya Barokah No. 12' },
+  ]
+
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">SETTINGS</p><h1>Pengaturan</h1><p className="subtitle">Konfigurasi dasar operasional toko.</p></div></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Konfigurasi toko</h2><p>{settings.length} pengaturan aktif</p></div></div><div className="table-wrap"><table><thead><tr><th>Pengaturan</th><th>Nilai</th></tr></thead><tbody>{settings.map((setting) => <tr key={setting.label}><td>{setting.label}</td><td><strong>{setting.value}</strong></td></tr>)}</tbody></table></div></div></section>
 }
 
 function MetricCard({ label, value, change, tone, icon: Icon }: { label: string; value: string; change: string; tone: string; icon: typeof CircleDollarSign }) {
