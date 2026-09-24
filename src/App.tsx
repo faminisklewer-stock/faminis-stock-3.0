@@ -182,41 +182,73 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     let mounted = true
     async function loadDashboard() {
       setDashboardState('loading')
-      const [transactions, transactionItems, products, stock, movements, availableLocations] = await Promise.all([
+      const [
+        transactionsResult,
+        transactionItemsResult,
+        productsResult,
+        stockResult,
+        movementsResult,
+        availableLocationsResult,
+        transfersResult,
+        transferItemsResult,
+        purchasesResult,
+        purchaseItemsResult,
+      ] = await Promise.allSettled([
         client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
         client.from('products').select('id, name').eq('active', true).order('name'),
         client.from('stocks').select('product_id, location_id, quantity'),
         client.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').order('created_at', { ascending: false }).limit(8),
         client.from('locations').select('id, name').eq('active', true).order('name'),
-      ])
-      if (!mounted) return
-      if (transactions.error || transactionItems.error || products.error || stock.error || movements.error || availableLocations.error) {
-        setDashboardState('error')
-        return
-      }
-      const [transfers, transferItems, purchases, purchaseItems] = await Promise.all([
         client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at, requested_by').order('created_at', { ascending: false }).limit(100),
         client.from('stock_transfer_items').select('id, transfer_id, product_id, shipped_quantity, received_quantity, discrepancy_reason'),
         client.from('purchase_receipts').select('id, supplier_name, location_id, created_at, created_by').order('created_at', { ascending: false }).limit(100),
         client.from('purchase_receipt_items').select('id, receipt_id, product_id, quantity, purchase_cost'),
       ])
       if (!mounted) return
-      if (transactions.error || transactionItems.error || products.error || stock.error || movements.error || availableLocations.error || transfers.error || transferItems.error || purchases.error || purchaseItems.error) {
+
+      const transactions = transactionsResult.status === 'fulfilled' ? (transactionsResult.value.data ?? []) : []
+      const transactionItems = transactionItemsResult.status === 'fulfilled' ? (transactionItemsResult.value.data ?? []) : []
+      const products = productsResult.status === 'fulfilled' ? (productsResult.value.data ?? []) : []
+      const stock = stockResult.status === 'fulfilled' ? (stockResult.value.data ?? []) : []
+      const movements = movementsResult.status === 'fulfilled' ? (movementsResult.value.data ?? []) : []
+      const availableLocations = availableLocationsResult.status === 'fulfilled' ? (availableLocationsResult.value.data ?? []) : []
+      const transfers = transfersResult.status === 'fulfilled' ? (transfersResult.value.data ?? []) : []
+      const transferItems = transferItemsResult.status === 'fulfilled' ? (transferItemsResult.value.data ?? []) : []
+      const purchases = purchasesResult.status === 'fulfilled' ? (purchasesResult.value.data ?? []) : []
+      const purchaseItems = purchaseItemsResult.status === 'fulfilled' ? (purchaseItemsResult.value.data ?? []) : []
+
+      const hasCriticalData = transactions.length || products.length || availableLocations.length || stock.length
+      const hadAnyError = [
+        transactionsResult,
+        transactionItemsResult,
+        productsResult,
+        stockResult,
+        movementsResult,
+        availableLocationsResult,
+        transfersResult,
+        transferItemsResult,
+        purchasesResult,
+        purchaseItemsResult,
+      ].some((result) => result.status === 'rejected' || (result.status === 'fulfilled' && result.value?.error))
+
+      if (!mounted) return
+      if (!hasCriticalData && hadAnyError) {
         setDashboardState('error')
         return
       }
+
       setDashboard({
-        transactions: transactions.data ?? [],
-        transactionItems: transactionItems.data ?? [],
-        products: products.data ?? [],
-        stock: stock.data ?? [],
-        movements: movements.data ?? [],
-        locations: availableLocations.data ?? [],
-        transfers: transfers.data ?? [],
-        transferItems: transferItems.data ?? [],
-        purchases: purchases.data ?? [],
-        purchaseItems: purchaseItems.data ?? [],
+        transactions,
+        transactionItems,
+        products,
+        stock,
+        movements,
+        locations: availableLocations,
+        transfers,
+        transferItems,
+        purchases,
+        purchaseItems,
       })
       setDashboardState('ready')
     }
