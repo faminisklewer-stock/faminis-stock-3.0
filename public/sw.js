@@ -1,4 +1,4 @@
-const CACHE_NAME = 'faminis-static-v3'
+const CACHE_NAME = 'faminis-static-v4'
 const APP_SHELL = ['/', '/manifest.json']
 
 self.addEventListener('install', (event) => {

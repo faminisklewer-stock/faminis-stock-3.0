@@ -107,7 +107,7 @@ function App() {
     const applyTranslations = () => translateVisibleUi(document.body)
     applyTranslations()
     const observer = new MutationObserver(applyTranslations)
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['placeholder', 'aria-label', 'title'] })
+    observer.observe(document.body, { childList: true, subtree: true })
     return () => observer.disconnect()
   }, [])
 
