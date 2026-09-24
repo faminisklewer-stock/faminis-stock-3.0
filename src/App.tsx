@@ -5,17 +5,21 @@ import {
   ArrowUpRight,
   Bell,
   Boxes,
+  ClipboardPenLine,
   ChevronDown,
   CircleDollarSign,
   ClipboardList,
   Grid2X2,
   LayoutDashboard,
+  MapPin,
   Package,
   Plus,
   Search,
   Settings,
+  ScrollText,
   ShoppingCart,
   Store,
+  Tags,
   Truck,
   UserRound,
   Users,
@@ -43,15 +47,20 @@ import type {
   TransferRecord,
 } from './lib/catalog'
 import { translateVisibleUi } from './lib/uiTranslations'
+import { MasterAdjustmentsView, MasterAuditLogsView, MasterCategoriesView, MasterLocationsView } from './components/MasterAdminViews'
 
 const masterNavItems: Array<{ label: string; icon: typeof LayoutDashboard; badge?: string }> = [
   { label: 'Ringkasan', icon: LayoutDashboard },
   { label: 'Kasir', icon: ShoppingCart },
   { label: 'Produk', icon: Package },
+  { label: 'Kategori', icon: Tags },
   { label: 'Stok', icon: Boxes },
+  { label: 'Adjustment', icon: ClipboardPenLine },
   { label: 'Transfer', icon: Truck, badge: '4' },
   { label: 'Pembelian', icon: ClipboardList },
   { label: 'Laporan', icon: Grid2X2 },
+  { label: 'Lokasi', icon: MapPin },
+  { label: 'Audit Log', icon: ScrollText },
 ]
 
 const operationalNavItems: Array<{ label: string; icon: typeof LayoutDashboard }> = [
@@ -923,7 +932,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       <main className="main-content">
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button><div className="top-avatar avatar avatar-brown">{profile.full_name.slice(0, 2).toUpperCase()}</div></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
           <section className="page-heading"><div><p className="eyebrow">SELASA, 22 SEPTEMBER 2026</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Transaksi baru</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'} <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
