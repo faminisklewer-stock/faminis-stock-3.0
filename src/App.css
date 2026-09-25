@@ -183,24 +183,6 @@ input::placeholder, textarea::placeholder { color: #7b7068; opacity: 1; }
   .module-page .filter-search { width: 100%; }
 }
 
-.stock-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
-.stock-summary-card { padding: 16px 18px; border: 1px solid #eee3d9; border-radius: 12px; background: linear-gradient(180deg, #fff 0%, #fffaf6 100%); }
-.stock-summary-card span { display: block; color: #8d7d73; font-size: 10px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
-.stock-summary-card strong { display: block; margin-top: 8px; color: #2d241f; font-size: 28px; letter-spacing: -0.8px; }
-.stock-summary-card small { display: block; margin-top: 4px; color: #7a6c62; font-size: 11px; }
-.stock-summary-card.warning { border-color: #f0d9c8; background: linear-gradient(180deg, #fffaf7 0%, #fff4ee 100%); }
-.stock-summary-card.warning strong { color: #9a5738; }
-
-.category-pills { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 18px; }
-.category-pill { padding: 8px 12px; border: 1px solid #eddfd2; border-radius: 999px; background: #fff; color: #5d4d45; font-size: 11px; font-weight: 700; }
-.category-pill.active { background: #6b4226; border-color: #6b4226; color: #fff; }
-.stock-low { color: #b95b4a; }
-
-@media (max-width: 780px) {
-  .stock-summary { grid-template-columns: 1fr; }
-  .module-page .filter-bar { flex-wrap: wrap; }
-  .module-page .filter-search { width: 100%; }
-}
 .transfer-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0 0 18px; }
 .transfer-summary-card { padding: 16px 18px; border: 1px solid #efe3d9; border-radius: 12px; background: linear-gradient(180deg, #fff 0%, #fffbf7 100%); }
 .transfer-summary-card span { display: block; color: #8d7d73; font-size: 10px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
@@ -723,7 +705,6 @@ input::placeholder, textarea::placeholder,
 
 .floating-cart-button { position: fixed; z-index: 19; right: 24px; bottom: 24px; display: inline-flex; align-items: center; gap: 8px; min-height: 46px; padding: 9px 13px 9px 10px; border: var(--retro-line); border-radius: 999px; background: var(--retro-yellow); color: var(--retro-ink); box-shadow: 3px 3px 0 var(--retro-ink); font-size: 12px; font-weight: 800; }
 .floating-cart-button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--retro-ink); }
-.floating-cart-icon { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid var(--retro-ink); border-radius: 50%; background: var(--retro-white); font-size: 18px; line-height: 1; }
 .floating-cart-button em { display: grid; place-items: center; min-width: 21px; height: 21px; padding: 0 5px; border: 1px solid var(--retro-ink); border-radius: 999px; background: var(--retro-pink); color: var(--retro-ink); font-size: 10px; font-style: normal; }
 .floating-cart-backdrop { position: fixed; z-index: 39; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(31, 36, 34, .38); }
 .pos-page .cart-panel { display: none; }
@@ -731,7 +712,144 @@ input::placeholder, textarea::placeholder,
 .pos-page .cart-panel-popup .cart-close-button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid #d59b8e; border-radius: 8px; background: #fff0ec; color: #a65348; font-size: 22px; line-height: 1; }
 .pos-page .cart-panel-popup .cart-lines { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
+.stock-report-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 720px; }
+.stock-report-cards .metric-card { min-width: 0; }
+.stock-report-cards .metric-card > strong { overflow-wrap: anywhere; }
+
+.module-page.reports-page .stock-report-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+@media (max-width: 780px) {
+  .module-page.reports-page .stock-report-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
+  .stock-report-cards .metric-card { min-height: 112px; padding: 14px; }
+  .stock-report-cards .metric-card > strong { font-size: 18px; }
+  .stock-report-cards .metric-change { position: static; margin-top: 8px; }
+}
+
+@media (max-width: 780px) {
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap tbody tr {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "route route" "product product" "status date" "draft draft" "action action";
+    gap: 0 12px;
+    padding: 13px;
+    overflow: hidden;
+    border: var(--retro-line);
+    border-radius: 12px;
+    background: var(--retro-white);
+    box-shadow: 4px 4px 0 rgba(31, 36, 34, .16);
+  }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td { min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td { width: 100%; justify-self: stretch; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(1) { grid-area: route; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(2) { grid-area: product; padding-bottom: 10px !important; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(3) { grid-area: status; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(4) { grid-area: date; min-width: 84px; white-space: nowrap; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(5) { grid-area: draft; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(6) { grid-area: action; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(5),
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(6) { min-height: 38px; padding-top: 9px !important; border-top: 1px solid #d8d1c5 !important; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td::before { color: #6f4d36; font-size: 8px; font-weight: 900; letter-spacing: .08em; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(1)::before { content: 'RUTE'; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(2)::before { content: 'PRODUK & QTY'; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(3)::before { content: 'STATUS'; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(4)::before { content: 'TANGGAL'; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(5)::before { content: 'KELOLA DRAFT'; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(6)::before { content: 'AKSI'; }
+  .pos-page .cart-panel-popup .cart-line small { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; gap: 8px; width: 100%; }
+  .pos-page .cart-panel-popup .cart-field { display: grid !important; grid-template-columns: minmax(0, 1fr); gap: 4px !important; width: 100%; min-width: 0; }
+  .pos-page .cart-panel-popup .cart-field input,
+  .pos-page .cart-panel-popup .cart-line > div > input { width: 100%; min-width: 0; min-height: 38px; box-sizing: border-box; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(2) > div { width: 100%; min-width: 0; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(2) > div > div { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(2) > div > div strong { min-width: 0; overflow-wrap: anywhere; }
+  .module-page:has(.transfer-summary) .transfer-list-panel .table-wrap td:nth-child(2) > div > div .table-subline { min-width: 0; margin-top: 0; white-space: nowrap; }
+
+  .module-page:has(.report-cards) .table-panel .table-wrap tbody tr {
+    grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
+    grid-template-areas: "invoice total" "product total" "location total" "date date";
+    gap: 7px 12px;
+    padding: 13px;
+    overflow: hidden;
+    border: var(--retro-line);
+    border-radius: 12px;
+    background: var(--retro-white);
+    box-shadow: 4px 4px 0 rgba(31, 36, 34, .16);
+  }
+  .module-page:has(.report-cards) .table-panel .table-wrap td { min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td { width: 100%; justify-self: stretch; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(1) { grid-area: invoice; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(2) { grid-area: product; padding-top: 0 !important; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(3) { grid-area: location; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(4) { grid-area: total; align-items: flex-end; text-align: right; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(5) { grid-area: date; padding-top: 8px !important; border-top: 1px solid #d8d1c5 !important; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(4) strong { max-width: 100%; overflow-wrap: anywhere; font-size: 17px; line-height: 1.2; }
+  .module-page:has(.report-cards) .table-panel .invoice-detail-list { min-width: 0; width: 100%; }
+  .module-page:has(.report-cards) .table-panel .invoice-detail-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; width: 100%; min-width: 0; gap: 6px; overflow: hidden; }
+  .module-page:has(.report-cards) .table-panel .invoice-detail-name { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+  .module-page:has(.report-cards) .table-panel .invoice-detail-qty { min-width: 0; max-width: 100%; justify-self: end; overflow-wrap: anywhere; text-align: right; white-space: normal; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td::before { color: #6f4d36; font-size: 8px; font-weight: 900; letter-spacing: .08em; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(1)::before { content: 'INVOICE'; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(2)::before { content: 'PRODUK & QTY'; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(3)::before { content: 'LOKASI'; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(4)::before { content: 'OMSET'; }
+  .module-page:has(.report-cards) .table-panel .table-wrap td:nth-child(5)::before { content: 'TANGGAL'; }
+}
+
+.cart-panel .sale-type-picker { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; width: 100%; margin: 0 0 14px; padding: 0; border: 0; background: transparent; }
+.cart-panel .sale-type-picker > span { padding: 0; color: var(--retro-ink); }
+.sale-type-options { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; width: 100%; min-width: 0; justify-self: stretch; padding: 3px; border: var(--retro-line); border-radius: 10px; background: var(--retro-white); }
+.sale-type-options .sale-type-option { width: 100%; min-width: 0; }
+.pos-page .checkout-box > .form-error, .pos-page .checkout-box > .form-success { position: fixed; z-index: 80; right: 16px; bottom: 18px; width: min(360px, calc(100vw - 32px)); margin: 0; padding: 13px 15px; border: var(--retro-line); border-radius: 12px; box-shadow: 4px 4px 0 var(--retro-ink); font-size: 12px; font-weight: 800; }
+.pos-page .checkout-box > .form-error { background: #ffd9d2; color: #7c2f2c; }
+.pos-page .checkout-box > .form-success { background: var(--retro-green); color: var(--retro-ink); }
+.select-wrap svg { display: none; }
+.report-stock-location-filter { width: 100%; }
+.report-stock-location-filter select { width: 100%; min-height: 44px; border: var(--retro-line); border-radius: 10px; background: var(--retro-white); color: var(--retro-ink); font-weight: 800; }
+.invoice-detail-item { min-width: 0; }
+.invoice-detail-name { min-width: 0; }
+.invoice-detail-qty { max-width: 100%; flex: 0 0 auto; overflow-wrap: anywhere; white-space: normal; }
+
 @media (max-width: 780px) {
   .floating-cart-button { right: 14px; bottom: calc(82px + env(safe-area-inset-bottom)); }
   .pos-page .cart-panel.cart-panel-popup { top: 70px; right: 10px; bottom: calc(82px + env(safe-area-inset-bottom)); left: 10px; width: auto; }
+  .transfer-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .transfer-summary-card { min-width: 0; padding: 10px 8px; border-radius: 10px; box-shadow: 2px 2px 0 rgba(31, 36, 34, .13); }
+  .transfer-summary-card span { font-size: 8px; letter-spacing: .3px; }
+  .transfer-summary-card strong { margin-top: 5px; font-size: 19px; }
+  .transfer-summary-card small { margin-top: 3px; font-size: 8px; line-height: 1.25; }
+  .transfer-list-panel .transfer-period-filter { display: grid; gap: 6px; align-items: stretch; width: 100%; }
+  .transfer-list-panel .transfer-period-filter > label { width: 100%; }
+  .transfer-list-panel .transfer-period-filter select { width: 100%; min-height: 44px; border: var(--retro-line); border-radius: 10px; background: var(--retro-white); color: var(--retro-ink); font-size: 12px; font-weight: 800; }
+  .reports-page .report-stock-location-filter { width: 100%; }
+  .pos-page .checkout-box > .form-error, .pos-page .checkout-box > .form-success { right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); width: calc(100vw - 24px); }
 }
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--retro-orange); outline-offset: 2px; }
+.icon-button, .more-button { min-width: 44px; min-height: 44px; }
+.product-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.metrics-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.stock-summary, .transfer-summary { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.panel-heading { gap: 12px; }
+.panel-heading > * { min-width: 0; }
+.panel-heading h2, .panel-heading p { overflow-wrap: anywhere; }
+
+@media (max-width: 780px) {
+  .button, .text-button, .icon-button, .more-button, .report-mode-tab, .sale-type-option, .category-pill { min-height: 44px; }
+  .product-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 780px) {
+  .transfer-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .transfer-list-panel .panel-heading .transfer-period-filter { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .transfer-list-panel .panel-heading .transfer-period-filter > label,
+  .transfer-list-panel .panel-heading .transfer-period-filter select { width: 100%; }
+  .module-page:has(.transfer-summary) .transfer-list-table td:nth-child(2) > div { width: 100%; min-width: 0; }
+  .module-page:has(.transfer-summary) .transfer-list-table td:nth-child(2) > div > div { display: flex !important; align-items: flex-start; justify-content: space-between; gap: 4px 8px; width: 100%; min-width: 0; flex-wrap: wrap; }
+  .module-page:has(.transfer-summary) .transfer-list-table td:nth-child(2) > div > div strong { min-width: 0; overflow-wrap: anywhere; }
+  .module-page:has(.transfer-summary) .transfer-list-table td:nth-child(2) > div > div .table-subline { flex: 0 0 auto; white-space: nowrap; }
+  .reports-page .invoice-detail-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-width: 0; gap: 6px; }
+  .reports-page .invoice-detail-name { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+  .reports-page .invoice-detail-qty { justify-self: end; max-width: 100%; overflow-wrap: anywhere; text-align: right; white-space: normal; }
+}
+
+.workspace-switcher > svg, .profile-row > svg { flex: 0 0 auto; margin-right: 4px; }
+.pos-location select, .module-page select, .operation-form select, .report-period-filter select, .transfer-period-filter select { padding-right: 30px; }

@@ -324,10 +324,28 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       popover.hidden = !popover.hidden
       button.setAttribute('aria-expanded', String(!popover.hidden))
     }
+    const closeNotification = () => {
+      popover.hidden = true
+      button.setAttribute('aria-expanded', 'false')
+    }
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (!popover.hidden && target !== button && !popover.contains(target)) closeNotification()
+    }
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeNotification()
+    }
     button.setAttribute('aria-expanded', 'false')
     button.addEventListener('click', handleNotificationClick)
-    return () => { button.removeEventListener('click', handleNotificationClick); popover.remove() }
-  }, [notifications])
+    document.addEventListener('pointerdown', handleDocumentPointerDown)
+    document.addEventListener('keydown', handleDocumentKeyDown)
+    return () => {
+      button.removeEventListener('click', handleNotificationClick)
+      document.removeEventListener('pointerdown', handleDocumentPointerDown)
+      document.removeEventListener('keydown', handleDocumentKeyDown)
+      popover.remove()
+    }
+  }, [notifications, profile.id])
 
   useEffect(() => {
     const actions = document.querySelector<HTMLElement>('.top-actions')
@@ -1044,7 +1062,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select><ChevronDown size={15} /></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'} <ChevronDown size={15} /></span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
           <section className="metrics-grid"><MetricCard label="Total omzet" value={dashboardState === 'loading' ? 'Memuat...' : formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Jumlah transaksi" value={dashboardState === 'loading' ? 'Memuat...' : String(visibleTransactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /><MetricCard label="Barang terjual" value={dashboardState === 'loading' ? 'Memuat...' : formatNumber(itemsSold)} change="Data terbaru" tone="orange" icon={Package} /><MetricCard label="Stok menipis" value={dashboardState === 'loading' ? 'Memuat...' : String(lowStock)} change={lowStock ? 'Perlu diperiksa' : 'Stok aman'} tone={lowStock ? 'red' : 'green'} icon={Boxes} /></section>
-          <section className="dashboard-grid"><div className="panel chart-panel"><div className="panel-heading"><div><h2>Revenue overview</h2><p>Monthly performance across all locations</p></div><div className="legend"><span><i className="legend-dot revenue"></i>Revenue</span><span><i className="legend-dot orders"></i>Orders</span></div></div><div className="chart dynamic-chart"><div className="chart-y"><span>{formatCurrency(maxChartRevenue)}</span><span>{formatCurrency(maxChartRevenue * .66)}</span><span>{formatCurrency(maxChartRevenue * .33)}</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d={chartFill} fill="url(#fill)" /><path d={chartPoints} fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x">{lastSevenDays.map((item) => <span key={item.label}>{item.label}</span>)}</div></div></div><div className="chart" style={{ display: 'none' }}><div className="chart-y"><span>15m</span><span>10m</span><span>5m</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12 V190 H0Z" fill="url(#fill)" /><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12" fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>01 Sep</span><span>05 Sep</span><span>10 Sep</span><span>15 Sep</span><span>20 Sep</span><span>22 Sep</span></div></div></div></div><div className="panel performance-panel"><div className="panel-heading"><div><h2>Location performance</h2><p>Revenue by location</p></div><button className="more-button">•••</button></div><div className="location-list dynamic-location-list">{locationRevenue.map((item, index) => <LocationBar key={item.id} name={item.name} value={formatCurrency(item.total)} percent={`${Math.max(18, (item.total / maxLocationRevenue) * 100)}%`} color={index % 2 === 0 ? 'brown' : index % 3 === 0 ? 'orange' : 'green'} />)}</div><div className="location-list" style={{ display: 'none' }}><LocationBar name="Ruko 3" value="Rp 12.8m" percent="82%" color="brown" /><LocationBar name="Live" value="Rp 10.4m" percent="68%" color="orange" /><LocationBar name="Ruko 1" value="Rp 8.9m" percent="58%" color="blue" /><LocationBar name="Ruko 2" value="Rp 7.6m" percent="50%" color="green" /><LocationBar name="Ruko 4" value="Rp 5.2m" percent="34%" color="purple" /></div><button className="text-button">View full report <ArrowUpRight size={14} /></button></div></section>
+          <section className="dashboard-grid"><div className="panel chart-panel"><div className="panel-heading"><div><h2>Revenue overview</h2><p>Monthly performance across all locations</p></div><div className="legend"><span><i className="legend-dot revenue"></i>Revenue</span><span><i className="legend-dot orders"></i>Orders</span></div></div><div className="chart dynamic-chart"><div className="chart-y"><span>{formatCurrency(maxChartRevenue)}</span><span>{formatCurrency(maxChartRevenue * .66)}</span><span>{formatCurrency(maxChartRevenue * .33)}</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d={chartFill} fill="url(#fill)" /><path d={chartPoints} fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x">{lastSevenDays.map((item) => <span key={item.label}>{item.label}</span>)}</div></div></div><div className="chart" style={{ display: 'none' }}><div className="chart-y"><span>15m</span><span>10m</span><span>5m</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12 V190 H0Z" fill="url(#fill)" /><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12" fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>01 Sep</span><span>05 Sep</span><span>10 Sep</span><span>15 Sep</span><span>20 Sep</span><span>22 Sep</span></div></div></div></div><div className="panel performance-panel"><div className="panel-heading"><div><h2>Location performance</h2><p>Revenue by location</p></div></div><div className="location-list dynamic-location-list">{locationRevenue.map((item, index) => <LocationBar key={item.id} name={item.name} value={formatCurrency(item.total)} percent={`${Math.max(18, (item.total / maxLocationRevenue) * 100)}%`} color={index % 2 === 0 ? 'brown' : index % 3 === 0 ? 'orange' : 'green'} />)}</div><div className="location-list" style={{ display: 'none' }}><LocationBar name="Ruko 3" value="Rp 12.8m" percent="82%" color="brown" /><LocationBar name="Live" value="Rp 10.4m" percent="68%" color="orange" /><LocationBar name="Ruko 1" value="Rp 8.9m" percent="58%" color="blue" /><LocationBar name="Ruko 2" value="Rp 7.6m" percent="50%" color="green" /><LocationBar name="Ruko 4" value="Rp 5.2m" percent="34%" color="purple" /></div><button className="text-button" type="button" onClick={() => setActive('Laporan')}>View full report <ArrowUpRight size={14} /></button></div></section>
           <section className="lower-grid"><div className="panel table-panel recent-sales-panel"><div className="panel-heading"><div><h2>Recent sales</h2><p>Latest transactions from Supabase</p></div><button className="text-button" onClick={() => setActive('Laporan')}>View all <ArrowUpRight size={14} /></button></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Location</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>{visibleTransactions.filter((sale) => sale.invoice_no.toLowerCase().includes(query.toLowerCase())).slice(0, 6).map((sale) => <tr key={sale.id}><td><strong>{sale.invoice_no}</strong></td><td>{dashboard.locations.find((item) => item.id === sale.location_id)?.name ?? 'Location'}</td><td><strong>{formatCurrency(Number(sale.grand_total))}</strong></td><td>{new Date(sale.created_at).toLocaleDateString('id-ID')}</td><td><span className="status"><i></i>Paid</span></td></tr>)}</tbody></table>{dashboardState === 'ready' && visibleTransactions.length === 0 && <div className="empty-state">Belum ada transaksi pada scope Anda.</div>}</div></div><div className="panel activity-panel"><div className="panel-heading"><div><h2>Activity</h2><p>Latest stock movements</p></div><button className="more-button" onClick={() => setActive('Stok')}>•••</button></div><div className="activity-list">{visibleMovements.slice(0, 3).map((movement) => <div className="activity-item" key={movement.id}><div className="activity-icon green"><ArrowDownToLine size={16} /></div><div><strong>{movement.movement_type.replace('_', ' ')}</strong><p>{movement.quantity > 0 ? '+' : ''}{movement.quantity} units</p><small>{new Date(movement.created_at).toLocaleString('id-ID')}</small></div></div>)}</div>{dashboardState === 'ready' && visibleMovements.length === 0 && <div className="empty-state">Belum ada activity.</div>}<button className="text-button" onClick={() => setActive('Stok')}>View activity log <ArrowUpRight size={14} /></button></div></section>
           </>}
         </div>
@@ -1085,6 +1103,8 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     const label = document.createElement('span')
     label.textContent = 'Jenis penjualan'
     picker.append(label)
+    const options = document.createElement('div')
+    options.className = 'sale-type-options'
     for (const type of ['ECER', 'GROSIR'] as const) {
       const button = document.createElement('button')
       button.type = 'button'
@@ -1092,8 +1112,9 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
       button.textContent = type === 'ECER' ? 'Ecer' : 'Grosir'
       button.setAttribute('aria-pressed', String(saleType === type))
       button.addEventListener('click', () => setSaleType(type))
-      picker.append(button)
+      options.append(button)
     }
+    picker.append(options)
     heading.after(picker)
     return () => picker.remove()
   }, [saleType])
@@ -1420,7 +1441,6 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
-  const [productQuery, setProductQuery] = useState('')
   const [sourceStocks, setSourceStocks] = useState<Array<{ product_id: string; quantity: number }>>([])
   const [quantity, setQuantity] = useState('1')
   const [note, setNote] = useState('')
@@ -1486,31 +1506,6 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     })
     return () => { mounted = false }
   }, [client, source])
-
-  useEffect(() => {
-    const form = document.querySelector<HTMLFormElement>('.module-page .operation-grid form')
-    const productLabel = form?.querySelectorAll<HTMLLabelElement>('label')[2]
-    const select = productLabel?.querySelector<HTMLSelectElement>('select')
-    if (!productLabel || !select) return
-    const searchInput = document.createElement('input')
-    searchInput.className = 'transfer-product-search'
-    searchInput.type = 'search'
-    searchInput.placeholder = 'Cari SKU atau nama produk...'
-    searchInput.setAttribute('aria-label', 'Cari produk transfer')
-    searchInput.value = productQuery
-    searchInput.addEventListener('input', (event) => setProductQuery((event.target as HTMLInputElement).value))
-    productLabel.insertBefore(searchInput, select)
-    const normalizedQuery = productQuery.trim().toLowerCase()
-    products.forEach((product) => {
-      const option = Array.from(select.options).find((item) => item.value === product.id)
-      if (!option) return
-      const availableStock = Number(sourceStocks.find((stock) => stock.product_id === product.id)?.quantity ?? 0)
-      option.textContent = `${product.sku ?? ''} - ${product.name} (stok ${availableStock})`
-      option.disabled = availableStock <= 0
-      option.hidden = availableStock <= 0 || (Boolean(normalizedQuery) && !`${product.sku ?? ''} ${product.name}`.toLowerCase().includes(normalizedQuery))
-    })
-    return () => searchInput.remove()
-  }, [productQuery, products, sourceStocks])
 
   useEffect(() => {
     if (!client) return
@@ -1777,6 +1772,26 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const transactions = data.transactions.filter((item) => (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
+  const soldQuantityByProduct = new Map<string, number>()
+  for (const item of data.transactionItems) {
+    if (!transactions.some((transaction) => transaction.id === item.transaction_id)) continue
+    soldQuantityByProduct.set(item.product_id, (soldQuantityByProduct.get(item.product_id) ?? 0) + Number(item.quantity))
+  }
+  const bestSellingProduct = [...soldQuantityByProduct.entries()].sort((left, right) => right[1] - left[1])[0]
+  const bestSellingProductName = bestSellingProduct ? productName(bestSellingProduct[0]) : 'Belum ada data'
+  const bestSellingProductChange = bestSellingProduct ? `${formatNumber(bestSellingProduct[1])} unit terjual` : 'Belum ada penjualan'
+  useEffect(() => {
+    if (reportMode !== 'penjualan') return
+    const cards = document.querySelector<HTMLElement>('.module-page .report-cards')
+    if (!cards || cards.querySelector('.report-best-selling-card')) return
+    const card = document.createElement('article')
+    card.className = 'metric-card report-best-selling-card'
+    card.innerHTML = `<div class="metric-icon orange"><span aria-hidden="true">TOP</span></div><p>Produk terlaris</p><strong></strong><span class="metric-change">${bestSellingProductChange}</span>`
+    const value = card.querySelector('strong')
+    if (value) value.textContent = bestSellingProductName
+    cards.append(card)
+    return () => card.remove()
+  }, [bestSellingProductChange, bestSellingProductName, reportMode])
   const reportModes: Array<{ key: 'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'; label: string }> = isOperationalUser ? [
     { key: 'penjualan', label: 'Penjualan' },
     { key: 'stok', label: 'Stok' },
@@ -1794,6 +1809,20 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const modeStock = data.products
     .filter((product) => stockCategory === 'all' || (product.sku ?? '').toUpperCase().startsWith(`${stockCategory}-`))
     .map((product) => ({ product_id: product.id, location_id: scopedLocation ?? '', quantity: stockByProduct.get(product.id) ?? 0, product }))
+  const selectedLocationStock = data.stock.filter((stock) => !scopedLocation || stock.location_id === scopedLocation)
+  const stockSkuCount = data.products.length
+  const stockTotalQuantity = selectedLocationStock.reduce((sum, stock) => sum + Number(stock.quantity), 0)
+  useEffect(() => {
+    if (reportMode !== 'stok') return
+    const panel = document.querySelector<HTMLElement>('.reports-page .table-panel')
+    const parent = panel?.parentElement
+    if (!panel || !parent || parent.querySelector('.stock-report-cards')) return
+    const cards = document.createElement('div')
+    cards.className = 'report-cards stock-report-cards'
+    cards.innerHTML = `<article class="metric-card"><div class="metric-icon brown"><span aria-hidden="true">SKU</span></div><p>Jumlah SKU</p><strong>${formatNumber(stockSkuCount)}</strong><span class="metric-change">Lokasi terpilih</span></article><article class="metric-card"><div class="metric-icon green"><span aria-hidden="true">QTY</span></div><p>Total stok</p><strong>${formatNumber(stockTotalQuantity)}</strong><span class="metric-change">Semua stok dijumlahkan</span></article>`
+    parent.insertBefore(cards, panel)
+    return () => cards.remove()
+  }, [reportMode, stockSkuCount, stockTotalQuantity])
   const renderStockLocationFilter = () => reportMode === 'stok' && <label className="report-stock-location-filter"><span>Lokasi stok</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{data.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
   const renderReportPeriodFilter = () => {
     if (!isOperationalUser) return null
