@@ -459,9 +459,12 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
 }
 
 .report-mode-tabs { display: flex; flex-wrap: wrap; width: fit-content; margin: 0 0 18px; padding: 4px; border: var(--retro-line); border-radius: 13px; background: var(--retro-white); box-shadow: 3px 3px 0 rgba(31, 36, 34, .12); }
-.report-mode-tab { min-height: 36px; padding: 8px 16px; border: 0; border-radius: 9px; background: transparent; color: #65706a; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.report-mode-tab { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 8px 16px; border: 0; border-radius: 9px; background: transparent; color: #65706a; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .report-mode-tab:hover { background: var(--retro-blue); color: var(--retro-ink); }
 .report-mode-tab.active { background: var(--retro-yellow); color: var(--retro-ink); box-shadow: 2px 2px 0 var(--retro-ink); }
+.transfer-tab-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--retro-ink); border-radius: 999px; background: var(--retro-pink); color: var(--retro-ink); font-size: 10px; font-style: normal; line-height: 1; }
+.transfer-period-filter { display: flex; align-items: center; gap: 8px; color: #8f8078; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.transfer-period-filter select { min-height: 34px; padding: 7px 28px 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
 .module-page .button-primary { color: var(--retro-white); font-weight: 800; text-shadow: 0 1px 0 rgba(0, 0, 0, .18); }
 
 @media (min-width: 781px) {

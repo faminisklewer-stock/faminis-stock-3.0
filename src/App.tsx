@@ -1394,6 +1394,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const isLocationUser = profile.role !== 'MASTER'
   const isOperationalUser = true
   const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('outgoing')
+  const [transferPeriod, setTransferPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
@@ -1570,10 +1571,10 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   }
 
   const locationName = (id: string) => locations.find((location) => location.id === id)?.name ?? 'Lokasi'
-  const actionFor = (transfer: TransferRecord) => {
+  const actionFor = (transfer: TransferRecord, tab = transferTab) => {
     const canActAsSource = !isLocationUser || transfer.source_location_id === profile.location_id
     const canActAsDestination = !isLocationUser || transfer.destination_location_id === profile.location_id
-    if (transferTab === 'outgoing') {
+    if (tab === 'outgoing') {
       if (transfer.status === 'DRAFT' && canActAsSource) return 'REQUESTED'
       if (transfer.status === 'APPROVED' && canActAsSource) return 'SHIPPED'
       return null
@@ -1665,14 +1666,35 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     return buttonAction
   }
 
-  const visibleTransfers = isLocationUser
+  const now = new Date()
+  const periodStart = new Date(now)
+  if (transferPeriod === 'daily') {
+    periodStart.setHours(0, 0, 0, 0)
+  } else if (transferPeriod === 'weekly') {
+    const dayFromMonday = (now.getDay() + 6) % 7
+    periodStart.setDate(now.getDate() - dayFromMonday)
+    periodStart.setHours(0, 0, 0, 0)
+  } else {
+    periodStart.setDate(1)
+    periodStart.setHours(0, 0, 0, 0)
+  }
+
+  const isInSelectedPeriod = (createdAt: string) => {
+    const transferDate = new Date(createdAt)
+    return transferDate >= periodStart && transferDate <= now
+  }
+
+  const visibleTransfers = (isLocationUser
     ? transfers.filter((transfer) => {
         const isIncoming = transfer.destination_location_id === profile.location_id
         const isOutgoing = transfer.source_location_id === profile.location_id
         const canReceiveIncoming = isIncoming && transfer.status !== 'DRAFT'
         return transferTab === 'incoming' ? canReceiveIncoming : isOutgoing
       })
-    : transfers
+    : transfers).filter((transfer) => isInSelectedPeriod(transfer.created_at))
+
+  const incomingTransferCount = transfers.filter((transfer) => Boolean(actionFor(transfer, 'incoming'))).length
+  const outgoingTransferCount = transfers.filter((transfer) => Boolean(actionFor(transfer, 'outgoing'))).length
 
   const transferStatusClass = (status: string) => {
     if (status === 'DRAFT') return 'transfer-badge draft'
@@ -1688,7 +1710,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     received: transfers.filter((transfer) => transfer.status === 'COMPLETED').length,
   }
 
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">STOCK TRANSFERS</p><h1>Transfer</h1><p className="subtitle">Pindahkan stok melalui status DRAFT sampai COMPLETED.</p></div></div><div className="transfer-summary" aria-label="Ringkasan transfer"><div className="transfer-summary-card"><span>Draft</span><strong>{transferSnapshot.draft}</strong><small>Belum diproses</small></div><div className="transfer-summary-card"><span>Proses</span><strong>{transferSnapshot.active}</strong><small>Dalam alur antar lokasi</small></div><div className="transfer-summary-card warning"><span>Received</span><strong>{transferSnapshot.received}</strong><small>Menunggu finalisasi</small></div></div>{isOperationalUser && <div className="report-mode-tabs"><button type="button" className={`report-mode-tab ${transferTab === 'incoming' ? 'active' : ''}`} onClick={() => setTransferTab('incoming')}>Transfer Masuk</button><button type="button" className={`report-mode-tab ${transferTab === 'outgoing' ? 'active' : ''}`} onClick={() => setTransferTab('outgoing')}>Transfer Keluar</button></div>}<div className="operation-grid"><form className="panel operation-form" onSubmit={createTransfer}><div className="panel-heading"><div><h2>Buat transfer</h2><p>Stok belum berubah sampai tahap SHIPPED.</p></div></div><label>Dari<select value={source} onChange={(event) => setSource(event.target.value)} disabled={!canChooseSource}>{allowedSources.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Ke<select value={destination} onChange={(event) => setDestination(event.target.value)}>{locations.filter((location) => location.id !== source).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Catatan<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional, wajib untuk selisih saat menerima" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Buat transfer'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar transfer</h2><p>{transfers.length} transfer terlihat sesuai akses Anda</p></div></div>{loading ? <div className="empty-state">Memuat transfer...</div> : <div className="table-wrap"><table><thead><tr><th>Rute</th><th>Produk & Qty</th><th>Status</th><th>Tanggal</th><th>Kelola Draft</th><th>Aksi</th></tr></thead><tbody>{visibleTransfers.map((transfer) => { const items = transferItems.filter((item) => item.transfer_id === transfer.id); return <tr key={transfer.id}><td><strong>{locationName(transfer.source_location_id)} → {locationName(transfer.destination_location_id)}</strong><small className="table-subline">{transfer.notes ?? 'Tanpa catatan'}</small></td><td>{!items.length ? '—' : <div style={{ display: 'grid', gap: 4 }}>{items.map((item) => { const product = products.find((candidate) => candidate.id === item.product_id); return <div key={item.id}><strong>{product?.name ?? 'Produk'} </strong><span className="table-subline">{item.shipped_quantity} {product?.unit ?? 'unit'}</span></div> })}</div>}</td><td><span className={transferStatusClass(transfer.status)}>{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleDateString('id-ID')}</td><td>{renderDraftControls(transfer)}</td><td>{renderTransferAction(transfer)}</td></tr> })}</tbody></table>{!transfers.length && <div className="empty-state">Belum ada transfer.</div>}</div>}</div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}</section>
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">STOCK TRANSFERS</p><h1>Transfer</h1><p className="subtitle">Pindahkan stok melalui status DRAFT sampai COMPLETED.</p></div></div><div className="transfer-summary" aria-label="Ringkasan transfer"><div className="transfer-summary-card"><span>Draft</span><strong>{transferSnapshot.draft}</strong><small>Belum diproses</small></div><div className="transfer-summary-card"><span>Proses</span><strong>{transferSnapshot.active}</strong><small>Dalam alur antar lokasi</small></div><div className="transfer-summary-card warning"><span>Received</span><strong>{transferSnapshot.received}</strong><small>Menunggu finalisasi</small></div></div>{isOperationalUser && <div className="report-mode-tabs"><button type="button" className={`report-mode-tab ${transferTab === 'incoming' ? 'active' : ''}`} onClick={() => setTransferTab('incoming')}>Transfer Masuk<em className="transfer-tab-count">{incomingTransferCount}</em></button><button type="button" className={`report-mode-tab ${transferTab === 'outgoing' ? 'active' : ''}`} onClick={() => setTransferTab('outgoing')}>Transfer Keluar<em className="transfer-tab-count">{outgoingTransferCount}</em></button></div>}<div className="operation-grid"><form className="panel operation-form" onSubmit={createTransfer}><div className="panel-heading"><div><h2>Buat transfer</h2><p>Stok belum berubah sampai tahap SHIPPED.</p></div></div><label>Dari<select value={source} onChange={(event) => setSource(event.target.value)} disabled={!canChooseSource}>{allowedSources.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Ke<select value={destination} onChange={(event) => setDestination(event.target.value)}>{locations.filter((location) => location.id !== source).map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label>Catatan<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Opsional, wajib untuk selisih saat menerima" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Buat transfer'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar transfer</h2><p>{visibleTransfers.length} transfer pada periode ini</p></div><label className="transfer-period-filter"><span>Periode</span><select value={transferPeriod} onChange={(event) => setTransferPeriod(event.target.value as typeof transferPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option></select></label></div>{loading ? <div className="empty-state">Memuat transfer...</div> : <div className="table-wrap"><table><thead><tr><th>Rute</th><th>Produk & Qty</th><th>Status</th><th>Tanggal</th><th>Kelola Draft</th><th>Aksi</th></tr></thead><tbody>{visibleTransfers.map((transfer) => { const items = transferItems.filter((item) => item.transfer_id === transfer.id); return <tr key={transfer.id}><td><strong>{locationName(transfer.source_location_id)} → {locationName(transfer.destination_location_id)}</strong><small className="table-subline">{transfer.notes ?? 'Tanpa catatan'}</small></td><td>{!items.length ? '—' : <div style={{ display: 'grid', gap: 4 }}>{items.map((item) => { const product = products.find((candidate) => candidate.id === item.product_id); return <div key={item.id}><strong>{product?.name ?? 'Produk'} </strong><span className="table-subline">{item.shipped_quantity} {product?.unit ?? 'unit'}</span></div> })}</div>}</td><td><span className={transferStatusClass(transfer.status)}>{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleDateString('id-ID')}</td><td>{renderDraftControls(transfer)}</td><td>{renderTransferAction(transfer)}</td></tr> })}</tbody></table>{!visibleTransfers.length && <div className="empty-state">Belum ada transfer pada periode ini.</div>}</div>}</div></div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}</section>
 }
 
 function AccessRestricted({ title, message }: { title: string; message: string }) {
