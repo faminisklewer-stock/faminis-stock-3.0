@@ -70,9 +70,9 @@ const operationalNavItems: Array<{ label: string; icon: typeof LayoutDashboard }
 ]
 
 type DashboardData = {
-  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; sale_type?: 'ECER' | 'GROSIR' }>
+  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; sale_type?: 'ECER' | 'GROSIR'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
   transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
-  products: Array<{ id: string; name: string }>
+  products: Array<{ id: string; name: string; sku?: string; category_id?: string | null }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
   movements: Array<{ id: string; movement_type: string; quantity: number; location_id: string; created_at: string }>
   locations: Array<{ id: string; name: string }>
@@ -347,9 +347,9 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         purchasesResult,
         purchaseItemsResult,
       ] = await Promise.allSettled([
-        client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type').order('created_at', { ascending: false }).limit(100),
+        client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
-        client.from('products').select('id, name').eq('active', true).order('name'),
+        client.from('products').select('id, name, sku, category_id').eq('active', true).order('name'),
         client.from('stocks').select('product_id, location_id, quantity'),
         client.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').order('created_at', { ascending: false }).limit(8),
         client.from('locations').select('id, name').eq('active', true).order('name'),
@@ -360,7 +360,11 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       ])
       if (!mounted) return
 
-      const transactions = transactionsResult.status === 'fulfilled' ? (transactionsResult.value.data ?? []) : []
+      const rawTransactions = transactionsResult.status === 'fulfilled' ? (transactionsResult.value.data ?? []) : []
+      const transactions = rawTransactions.map((transaction) => {
+        const payment = Array.isArray(transaction.payments) ? transaction.payments[0] : transaction.payments
+        return { ...transaction, payment_method: payment?.method ?? null }
+      })
       const transactionItems = transactionItemsResult.status === 'fulfilled' ? (transactionItemsResult.value.data ?? []) : []
       const products = productsResult.status === 'fulfilled' ? (productsResult.value.data ?? []) : []
       const stock = stockResult.status === 'fulfilled' ? (stockResult.value.data ?? []) : []
@@ -1726,6 +1730,7 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
   const [reportCustomFrom, setReportCustomFrom] = useState('')
   const [reportCustomTo, setReportCustomTo] = useState('')
+  const [stockCategory, setStockCategory] = useState('all')
   const locationName = (id: string) => data.locations.find((item) => item.id === id)?.name ?? 'Tidak diketahui'
   const now = new Date()
   const periodStart = new Date(now)
@@ -1744,14 +1749,16 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     periodEnd = new Date(`${reportCustomTo}T23:59:59.999`)
   }
   const isInReportPeriod = (createdAt: string) => !isOperationalUser || (reportPeriod === 'custom' && (!reportCustomFrom || !reportCustomTo) ? false : new Date(createdAt) >= periodStart && new Date(createdAt) <= periodEnd)
-  const transactions = data.transactions.filter((item) => (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'}` }))
+  const paymentMethodLabel = (method: string | null | undefined) => ({ CASH: 'Tunai', QRIS: 'QRIS', TRANSFER: 'Transfer', DEBIT: 'Debit', CREDIT: 'Kredit' }[method ?? ''] ?? 'Tidak diketahui')
+  const transactions = data.transactions.filter((item) => (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
   const reportModes: Array<{ key: 'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'; label: string }> = isOperationalUser ? [
     { key: 'penjualan', label: 'Penjualan' },
     { key: 'stok', label: 'Stok' },
   ] : []
-  const renderReportModeTabs = () => isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>
+  const stockCategories = [{ id: 'all', name: 'Semua' }, { id: 'MKN', name: 'Mukena' }, { id: 'SRG', name: 'Sarung' }, { id: 'SJD', name: 'Sajadah' }, { id: 'DST', name: 'Daster' }, { id: 'BSW', name: 'Busana Wanita' }, { id: 'BSP', name: 'Busana Pria' }]
+  const renderReportModeTabs = () => isOperationalUser && <><div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>{reportMode === 'stok' && <div className="category-pills report-stock-categories" aria-label="Filter kategori stok">{stockCategories.map((category) => <button key={category.id} type="button" className={`category-pill ${stockCategory === category.id ? 'active' : ''}`} onClick={() => setStockCategory(category.id)}>{category.name}</button>)}</div>}</>
   const scopedLocation = location === 'all' ? profile.location_id : location
   const transferDetailText = (transferId: string) => data.transferItems.filter((item) => item.transfer_id === transferId).map((item) => `${productName(item.product_id)} x${item.shipped_quantity}`).join(', ') || 'Detail produk belum tersedia'
   const modeTransfers = data.transfers.filter((transfer) => {
@@ -1759,8 +1766,12 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     const matchesMode = reportMode === 'transfer-masuk' ? transfer.destination_location_id === profile.location_id : transfer.source_location_id === profile.location_id
     return matchesLocation && matchesMode && isInReportPeriod(transfer.created_at)
   }).map((transfer) => ({ ...transfer, status: `${transfer.status} · ${transferDetailText(transfer.id)}` }))
-  const modeStock = data.stock.filter((stock) => !scopedLocation || stock.location_id === scopedLocation)
-  const renderReportPeriodFilter = () => isOperationalUser && <div className="report-period-filter"><label><span>Periode</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}</div>
+  const stockByProduct = new Map(data.stock.filter((stock) => !scopedLocation || stock.location_id === scopedLocation).map((stock) => [stock.product_id, Number(stock.quantity)]))
+  const modeStock = data.products
+    .filter((product) => stockCategory === 'all' || (product.sku ?? '').toUpperCase().startsWith(`${stockCategory}-`))
+    .map((product) => ({ product_id: product.id, location_id: scopedLocation ?? '', quantity: stockByProduct.get(product.id) ?? 0, product }))
+  const renderStockLocationFilter = () => reportMode === 'stok' && <label className="report-stock-location-filter"><span>Lokasi stok</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{data.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+  const renderReportPeriodFilter = () => isOperationalUser && <div className="report-period-filter"><label><span>Periode</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}{renderStockLocationFilter()}</div>
   if (isOperationalUser && reportMode !== 'penjualan') {
     const isStockReport = reportMode === 'stok'
     const title = isStockReport ? 'Laporan stok' : reportMode === 'transfer-masuk' ? 'Transfer masuk' : 'Transfer keluar'
