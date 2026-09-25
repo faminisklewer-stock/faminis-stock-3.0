@@ -1399,7 +1399,9 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const isLocationUser = profile.role !== 'MASTER'
   const isOperationalUser = true
   const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('outgoing')
-  const [transferPeriod, setTransferPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [transferPeriod, setTransferPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
+  const [transferCustomFrom, setTransferCustomFrom] = useState('')
+  const [transferCustomTo, setTransferCustomTo] = useState('')
   const [source, setSource] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
@@ -1509,6 +1511,38 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     }
   }, [client, loadTransfers])
   useEffect(() => { if (!destination) setDestination(locations.find((location) => location.id !== source)?.id ?? '') }, [destination, locations, source])
+
+  useEffect(() => {
+    const filter = document.querySelector<HTMLElement>('.transfer-list-panel .transfer-period-filter')
+    const select = filter?.querySelector<HTMLSelectElement>('select')
+    if (!filter || !select) return
+    const option = document.createElement('option')
+    option.value = 'custom'
+    option.textContent = 'Custom tanggal'
+    select.append(option)
+    const dates = document.createElement('div')
+    dates.className = 'transfer-custom-dates'
+    const fromLabel = document.createElement('label')
+    fromLabel.innerHTML = '<span>Dari</span>'
+    const fromInput = document.createElement('input')
+    fromInput.type = 'date'
+    fromInput.value = transferCustomFrom
+    fromInput.addEventListener('change', () => setTransferCustomFrom(fromInput.value))
+    fromLabel.append(fromInput)
+    const toLabel = document.createElement('label')
+    toLabel.innerHTML = '<span>Sampai</span>'
+    const toInput = document.createElement('input')
+    toInput.type = 'date'
+    toInput.value = transferCustomTo
+    toInput.addEventListener('change', () => setTransferCustomTo(toInput.value))
+    toLabel.append(toInput)
+    dates.append(fromLabel, toLabel)
+    filter.append(dates)
+    const syncVisibility = () => { dates.hidden = select.value !== 'custom' }
+    select.addEventListener('change', syncVisibility)
+    syncVisibility()
+    return () => { select.removeEventListener('change', syncVisibility); dates.remove(); option.remove() }
+  }, [transferCustomFrom, transferCustomTo, transferPeriod])
 
   async function createTransfer(event: FormEvent) {
     event.preventDefault()
@@ -1680,12 +1714,16 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     const dayFromMonday = (now.getDay() + 6) % 7
     periodStart.setDate(now.getDate() - dayFromMonday)
     periodStart.setHours(0, 0, 0, 0)
-  } else {
+  } else if (transferPeriod === 'monthly') {
     periodStart.setDate(1)
     periodStart.setHours(0, 0, 0, 0)
+  } else if (transferCustomFrom && transferCustomTo) {
+    periodStart.setTime(new Date(`${transferCustomFrom}T00:00:00`).getTime())
+    periodEnd = new Date(`${transferCustomTo}T23:59:59.999`)
   }
 
   const isInSelectedPeriod = (createdAt: string) => {
+    if (transferPeriod === 'custom' && (!transferCustomFrom || !transferCustomTo)) return false
     const transferDate = new Date(createdAt)
     return transferDate >= periodStart && transferDate <= periodEnd
   }
@@ -1771,7 +1809,11 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     .filter((product) => stockCategory === 'all' || (product.sku ?? '').toUpperCase().startsWith(`${stockCategory}-`))
     .map((product) => ({ product_id: product.id, location_id: scopedLocation ?? '', quantity: stockByProduct.get(product.id) ?? 0, product }))
   const renderStockLocationFilter = () => reportMode === 'stok' && <label className="report-stock-location-filter"><span>Lokasi stok</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{data.locations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-  const renderReportPeriodFilter = () => isOperationalUser && <div className="report-period-filter"><label><span>Periode</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}{renderStockLocationFilter()}</div>
+  const renderReportPeriodFilter = () => {
+    if (!isOperationalUser) return null
+    if (reportMode === 'stok') return renderStockLocationFilter()
+    return <div className="report-period-filter"><label><span>Periode penjualan</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}</div>
+  }
   if (isOperationalUser && reportMode !== 'penjualan') {
     const isStockReport = reportMode === 'stok'
     const title = isStockReport ? 'Laporan stok' : reportMode === 'transfer-masuk' ? 'Transfer masuk' : 'Transfer keluar'

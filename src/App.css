@@ -465,6 +465,9 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
 .transfer-tab-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--retro-ink); border-radius: 999px; background: var(--retro-pink); color: var(--retro-ink); font-size: 10px; font-style: normal; line-height: 1; }
 .transfer-period-filter { display: flex; align-items: center; gap: 8px; color: #8f8078; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .transfer-period-filter select { min-height: 34px; padding: 7px 28px 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
+.transfer-custom-dates { display: flex; align-items: flex-end; gap: 8px; }
+.transfer-custom-dates label { display: grid; gap: 5px; color: #8f8078; font-size: 11px; font-weight: 700; }
+.transfer-custom-dates input { min-height: 34px; padding: 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
 .report-period-filter { display: flex; align-items: flex-end; gap: 8px; color: #8f8078; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .report-period-filter label { display: grid; gap: 5px; }
 .report-period-filter select, .report-period-filter input { min-height: 34px; padding: 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
@@ -499,6 +502,9 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
   .report-stock-location-filter select { width: 100%; }
   .transfer-list-panel .panel-heading { gap: 12px; }
   .transfer-list-panel .transfer-period-filter { justify-content: space-between; width: 100%; padding-top: 4px; }
+  .transfer-custom-dates { flex: 1 1 100%; }
+  .transfer-custom-dates label { flex: 1 1 0; min-width: 0; }
+  .transfer-custom-dates input { width: 100%; }
   .transfer-list-panel .table-wrap { margin: 12px 0 0; overflow: visible; border: 0; }
   .transfer-list-table { display: block; min-width: 0 !important; }
   .transfer-list-table thead { display: none; }
@@ -515,6 +521,25 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
   .transfer-list-table td:nth-child(1), .transfer-list-table td:nth-child(2) { grid-column: 1 / -1; }
   .transfer-list-table td:nth-child(5), .transfer-list-table td:nth-child(6) { padding-top: 8px !important; border-top: 1px solid #e5dbd0 !important; }
   .transfer-list-table .transfer-badge { align-self: flex-start; }
+}
+
+@media (max-width: 780px) {
+  .reports-page .report-cards ~ .table-panel .table-wrap tbody tr { grid-template-columns: minmax(0, 1fr) minmax(112px, .72fr); grid-template-rows: auto auto auto auto; align-items: start; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td { min-height: 30px; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td::before { margin-bottom: 4px; color: #746961; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(1)::before { content: 'Invoice'; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(2) { grid-column: 1 / -1; grid-row: 4; padding-top: 8px !important; border-top: 1px solid #e5dbd0 !important; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(2)::before { content: 'Nama barang'; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(3) { grid-column: 1; grid-row: 2; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(3)::before { content: 'Lokasi'; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4) { grid-column: 2; grid-row: 1 / span 3; align-items: flex-end; text-align: right; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4)::before { content: 'Total penjualan'; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4) strong { color: #3d3029; font-size: 18px; line-height: 1.2; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(5) { grid-column: 1; grid-row: 3; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(5)::before { content: 'Tanggal'; }
+  .reports-page .report-cards ~ .table-panel .table-wrap .invoice-detail-list { width: 100%; }
+  .reports-page .report-cards ~ .table-panel .table-wrap .invoice-detail-item { width: 100%; }
 }
 
 @media (min-width: 781px) {
