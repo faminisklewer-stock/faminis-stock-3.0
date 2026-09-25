@@ -284,6 +284,8 @@ declare
   v_location_a uuid;
   v_location_b uuid;
   v_product_id uuid;
+  v_source_before integer;
+  v_destination_before integer;
   v_transfer public.stock_transfers;
   v_item record;
 begin
@@ -301,6 +303,9 @@ begin
     raise notice 'SKIP_TRANSFER_FLOW_TEST: missing WAREHOUSE, MASTER, two locations, or stock data in staging';
     return;
   end if;
+
+  select coalesce((select quantity from public.stocks where product_id = v_product_id and location_id = v_location_a), 0) into v_source_before;
+  select coalesce((select quantity from public.stocks where product_id = v_product_id and location_id = v_location_b), 0) into v_destination_before;
 
   perform public.as_user(v_warehouse_id);
   select public.create_transfer(
@@ -323,6 +328,10 @@ begin
     raise exception 'TRANSFER_SHIPPED_STATUS_FAILED: status=%', v_transfer.status;
   end if;
 
+  if coalesce((select quantity from public.stocks where product_id = v_product_id and location_id = v_location_a), 0) <> v_source_before - 5 then
+    raise exception 'TRANSFER_SOURCE_STOCK_NOT_DECREMENTED: expected=% actual=%', v_source_before - 5, (select quantity from public.stocks where product_id = v_product_id and location_id = v_location_a);
+  end if;
+
   -- simulate destination receiving user
   perform public.as_user((select id from public.profiles where role = 'LIVE' and location_id = v_location_b limit 1));
   select public.receive_transfer(
@@ -339,6 +348,13 @@ begin
 
   if v_transfer.status <> 'RECEIVED' then
     raise exception 'TRANSFER_RECEIVED_STATUS_FAILED: status=%', v_transfer.status;
+  end if;
+
+  if coalesce((select quantity from public.stocks where product_id = v_product_id and location_id = v_location_b), 0) <> v_destination_before + 5 then
+    raise exception 'TRANSFER_DESTINATION_STOCK_NOT_INCREMENTED: expected=% actual=%', v_destination_before + 5, (select quantity from public.stocks where product_id = v_product_id and location_id = v_location_b);
+  end if;
+  if not exists (select 1 from public.stock_transfer_items where transfer_id = v_transfer.id and product_id = v_product_id and received_quantity = 5) then
+    raise exception 'TRANSFER_PRODUCT_ID_MISMATCH: expected_product=%', v_product_id;
   end if;
 
   perform public.as_user(v_master_id);

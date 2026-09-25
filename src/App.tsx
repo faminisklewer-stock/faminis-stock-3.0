@@ -330,6 +330,20 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }, [notifications])
 
   useEffect(() => {
+    const actions = document.querySelector<HTMLElement>('.top-actions')
+    if (!actions || actions.querySelector('.mobile-logout-button')) return
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'icon-button mobile-logout-button'
+    button.setAttribute('aria-label', 'Keluar')
+    button.title = 'Keluar'
+    button.textContent = 'Keluar'
+    button.addEventListener('click', onLogout)
+    actions.append(button)
+    return () => { button.removeEventListener('click', onLogout); button.remove() }
+  }, [onLogout])
+
+  useEffect(() => {
     if (!supabase) return
     const client = supabase
     let mounted = true
@@ -1396,6 +1410,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [transfers, setTransfers] = useState<TransferRecord[]>([])
   const [transferItems, setTransferItems] = useState<TransferItemRecord[]>([])
   const [products, setProducts] = useState<ProductRecord[]>([])
+  const [allTransferProducts, setAllTransferProducts] = useState<ProductRecord[]>([])
   const isLocationUser = profile.role !== 'MASTER'
   const isOperationalUser = true
   const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('outgoing')
@@ -1437,8 +1452,10 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     if (transferResult.error || productResult.error || itemResult.error) setError('Data transfer tidak dapat dimuat dari Supabase.')
     else {
       const nextItems = (itemResult.data ?? []) as TransferItemRecord[]
+      const loadedProducts = (productResult.data ?? []) as ProductRecord[]
       setTransfers((transferResult.data ?? []) as TransferRecord[])
-      setProducts(filterApprovedProducts((productResult.data ?? []) as ProductRecord[]))
+      setProducts(loadedProducts)
+      setAllTransferProducts(loadedProducts)
       setTransferItems(nextItems)
       setReceiptDrafts((current) => {
         const nextDrafts = { ...current }
@@ -1580,7 +1597,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
       const draft = receiptDrafts[item.id] ?? { quantity: String(item.received_quantity ?? item.shipped_quantity), note: item.discrepancy_reason ?? '' }
       const receivedQuantity = Number(draft.quantity)
       if (!Number.isInteger(receivedQuantity) || receivedQuantity < 0 || receivedQuantity > item.shipped_quantity) {
-        setError(`Jumlah terima untuk ${products.find((product) => product.id === item.product_id)?.name ?? 'produk'} harus antara 0 dan ${item.shipped_quantity}.`)
+        setError(`Jumlah terima untuk ${transferProductName(item.product_id)} harus antara 0 dan ${item.shipped_quantity}.`)
         return
       }
       if (receivedQuantity < item.shipped_quantity && !draft.note.trim()) {
@@ -1610,6 +1627,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   }
 
   const locationName = (id: string) => locations.find((location) => location.id === id)?.name ?? 'Lokasi'
+  const transferProductName = (id: string) => allTransferProducts.find((product) => product.id === id)?.name ?? products.find((product) => product.id === id)?.name ?? 'Produk'
   const actionFor = (transfer: TransferRecord, tab = transferTab) => {
     const canActAsSource = !isLocationUser || transfer.source_location_id === profile.location_id
     const canActAsDestination = !isLocationUser || transfer.destination_location_id === profile.location_id
@@ -1661,7 +1679,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
 
   const startDraftEdit = (transfer: TransferRecord) => {
     const item = transferItems.find((entry) => entry.transfer_id === transfer.id)
-    const product = item ? products.find((candidate) => candidate.id === item.product_id) : undefined
+    const product = item ? allTransferProducts.find((candidate) => candidate.id === item.product_id) ?? products.find((candidate) => candidate.id === item.product_id) : undefined
     setEditingTransferId(transfer.id)
     setDraftEditor({
       productId: item?.product_id ?? product?.id ?? '',
