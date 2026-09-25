@@ -465,9 +465,53 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
 .transfer-tab-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--retro-ink); border-radius: 999px; background: var(--retro-pink); color: var(--retro-ink); font-size: 10px; font-style: normal; line-height: 1; }
 .transfer-period-filter { display: flex; align-items: center; gap: 8px; color: #8f8078; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .transfer-period-filter select { min-height: 34px; padding: 7px 28px 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
-.report-period-filter { display: flex; align-items: center; gap: 8px; color: #8f8078; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.report-period-filter select { min-height: 34px; padding: 7px 28px 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
+.report-period-filter { display: flex; align-items: flex-end; gap: 8px; color: #8f8078; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.report-period-filter label { display: grid; gap: 5px; }
+.report-period-filter select, .report-period-filter input { min-height: 34px; padding: 7px 9px; border: 1px solid #e7ddd4; border-radius: 8px; background: #fff; color: #5e5047; font-size: 11px; font-weight: 600; }
 .module-page .button-primary { color: var(--retro-white); font-weight: 800; text-shadow: 0 1px 0 rgba(0, 0, 0, .18); }
+
+.reports-page .report-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 720px; gap: 16px; }
+.reports-page .report-cards .metric-card { min-height: 132px; padding: 20px; }
+.reports-page .table-panel .panel-heading { padding-bottom: 14px; border-bottom: 1px solid #eee5de; }
+.transfer-list-panel .table-wrap { margin-top: 16px; }
+.transfer-list-table { width: 100%; table-layout: fixed; }
+.transfer-list-table th, .transfer-list-table td { vertical-align: middle; }
+.transfer-list-table th:nth-child(1), .transfer-list-table td:nth-child(1) { width: 24%; }
+.transfer-list-table th:nth-child(2), .transfer-list-table td:nth-child(2) { width: 21%; }
+.transfer-list-table th:nth-child(3), .transfer-list-table td:nth-child(3) { width: 12%; }
+.transfer-list-table th:nth-child(4), .transfer-list-table td:nth-child(4) { width: 12%; white-space: nowrap; }
+.transfer-list-table th:nth-child(5), .transfer-list-table td:nth-child(5) { width: 15%; }
+.transfer-list-table th:nth-child(6), .transfer-list-table td:nth-child(6) { width: 16%; }
+.transfer-list-table td:first-child strong, .transfer-list-table td:nth-child(2) strong { display: block; line-height: 1.35; }
+.transfer-list-table .transfer-badge { min-width: 0; white-space: nowrap; }
+.transfer-list-table .text-button { max-width: 100%; text-align: left; white-space: normal; }
+
+@media (max-width: 780px) {
+  .reports-page .report-cards { grid-template-columns: 1fr; max-width: none; gap: 10px; }
+  .reports-page .report-cards .metric-card { min-height: 112px; padding: 16px; }
+  .report-period-filter { flex-wrap: wrap; align-items: flex-end; width: 100%; }
+  .report-period-filter label:first-child { flex: 1 1 100%; }
+  .report-period-filter label:not(:first-child) { flex: 1 1 0; min-width: 0; }
+  .report-period-filter select, .report-period-filter input { width: 100%; }
+  .transfer-list-panel .panel-heading { gap: 12px; }
+  .transfer-list-panel .transfer-period-filter { justify-content: space-between; width: 100%; padding-top: 4px; }
+  .transfer-list-panel .table-wrap { margin: 12px 0 0; overflow: visible; border: 0; }
+  .transfer-list-table { display: block; min-width: 0 !important; }
+  .transfer-list-table thead { display: none; }
+  .transfer-list-table tbody { display: grid; gap: 10px; }
+  .transfer-list-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; padding: 13px; border: var(--retro-line); border-radius: 11px; background: var(--retro-white); box-shadow: 2px 2px 0 rgba(31, 36, 34, .1); }
+  .transfer-list-table td { display: flex; min-width: 0; flex-direction: column; justify-content: center; padding: 0 !important; border: 0 !important; color: var(--retro-ink); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+  .transfer-list-table td::before { margin-bottom: 4px; color: #746961; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .transfer-list-table td:nth-child(1)::before { content: 'Rute'; }
+  .transfer-list-table td:nth-child(2)::before { content: 'Produk & qty'; }
+  .transfer-list-table td:nth-child(3)::before { content: 'Status'; }
+  .transfer-list-table td:nth-child(4)::before { content: 'Tanggal'; }
+  .transfer-list-table td:nth-child(5)::before { content: 'Kelola draft'; }
+  .transfer-list-table td:nth-child(6)::before { content: 'Aksi'; }
+  .transfer-list-table td:nth-child(1), .transfer-list-table td:nth-child(2) { grid-column: 1 / -1; }
+  .transfer-list-table td:nth-child(5), .transfer-list-table td:nth-child(6) { padding-top: 8px !important; border-top: 1px solid #e5dbd0 !important; }
+  .transfer-list-table .transfer-badge { align-self: flex-start; }
+}
 
 @media (min-width: 781px) {
   .recent-sales-panel { min-width: 0; }
