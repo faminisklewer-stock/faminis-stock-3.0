@@ -364,7 +364,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
         client.from('products').select('id, name, sku, category_id').eq('active', true).order('name'),
-        client.from('stocks').select('product_id, location_id, quantity'),
+        client.rpc('get_stock_report'),
         client.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').order('created_at', { ascending: false }).limit(8),
         client.from('locations').select('id, name').eq('active', true).order('name'),
         client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at, requested_by').order('created_at', { ascending: false }).limit(100),
