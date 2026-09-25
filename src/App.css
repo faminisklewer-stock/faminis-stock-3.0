@@ -529,14 +529,14 @@ body, .app-shell { background: var(--retro-paper); color: var(--retro-ink); }
   .reports-page .report-cards ~ .table-panel .table-wrap td::before { margin-bottom: 4px; color: #746961; font-size: 9px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(1) { grid-column: 1; grid-row: 1; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(1)::before { content: 'Invoice'; }
-  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(2) { grid-column: 1 / -1; grid-row: 4; padding-top: 8px !important; border-top: 1px solid #e5dbd0 !important; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(2) { grid-column: 1; grid-row: 2; padding-top: 0 !important; border-top: 0 !important; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(2)::before { content: 'Nama barang'; }
-  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(3) { grid-column: 1; grid-row: 2; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(3) { grid-column: 1; grid-row: 3; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(3)::before { content: 'Lokasi'; }
-  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4) { grid-column: 2; grid-row: 1 / span 3; align-items: flex-end; text-align: right; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4) { grid-column: 2; grid-row: 1 / span 4; align-items: flex-end; text-align: right; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4)::before { content: 'Total penjualan'; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(4) strong { color: #3d3029; font-size: 18px; line-height: 1.2; }
-  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(5) { grid-column: 1; grid-row: 3; }
+  .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(5) { grid-column: 1; grid-row: 4; }
   .reports-page .report-cards ~ .table-panel .table-wrap td:nth-child(5)::before { content: 'Tanggal'; }
   .reports-page .report-cards ~ .table-panel .table-wrap .invoice-detail-list { width: 100%; }
   .reports-page .report-cards ~ .table-panel .table-wrap .invoice-detail-item { width: 100%; }
