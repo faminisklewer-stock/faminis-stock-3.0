@@ -1,7 +1,7 @@
 const UI_TRANSLATIONS: Record<string, string> = {
   'All locations': 'Semua lokasi',
   'Revenue overview': 'Ringkasan omzet',
-  'Monthly performance across all locations': 'Performa bulanan semua lokasi',
+  'Monthly performance across all locations': 'Omzet 7 hari terakhir pada lokasi terpilih',
   Revenue: 'Omzet',
   Orders: 'Pesanan',
   'Recent sales': 'Penjualan terbaru',

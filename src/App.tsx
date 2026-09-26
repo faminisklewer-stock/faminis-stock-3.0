@@ -77,7 +77,7 @@ type DashboardData = {
   products: Array<{ id: string; name: string; sku?: string; category_id?: string | null }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
   movements: Array<{ id: string; movement_type: string; quantity: number; location_id: string; created_at: string }>
-  locations: Array<{ id: string; name: string }>
+  locations: LocationOption[]
   transfers: Array<{ id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }>
   transferItems: Array<{ id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }>
   purchases: Array<{ id: string; supplier_name: string | null; location_id: string; created_at: string; created_by: string | null }>

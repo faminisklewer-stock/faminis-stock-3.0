@@ -1,6 +1,6 @@
 export type PosProduct = { id: string; sku: string; name: string; unit: string; stock: number; category_id?: string | null; category_name?: string | null }
 export type CartItem = PosProduct & { quantity: number; unitPrice: number }
-export type LocationOption = { id: string; name: string }
+export type LocationOption = { id: string; name: string; kind: string }
 export type CategoryRecord = { id: string; name: string; active: boolean }
 export type ProductRecord = { id: string; sku: string; name: string; unit: string; variant: string | null; active: boolean; category_id: string | null; category_name?: string | null }
 export type StockRecord = { product_id: string; location_id: string; quantity: number }

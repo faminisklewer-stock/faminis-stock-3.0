@@ -129,6 +129,24 @@ select count(*) as accessable_locations from public.locations where public.can_a
 select public.as_user((select id from public.profiles where role = 'WAREHOUSE' limit 1));
 select public.current_user_role() as current_role;
 select count(*) as accessable_locations from public.locations where public.can_access_location(id);
+do $$
+declare
+  assigned_location uuid;
+begin
+  select location_id into assigned_location from public.profiles where id = auth.uid();
+  if assigned_location is null then
+    raise exception 'WAREHOUSE_LOCATION_REQUIRED';
+  end if;
+  if exists (
+    select 1 from public.get_stock_report()
+    where location_id is distinct from assigned_location
+  ) then
+    raise exception 'WAREHOUSE_STOCK_SCOPE_VIOLATION';
+  end if;
+  if not exists (select 1 from public.get_stock_report() where location_id = assigned_location) then
+    raise exception 'WAREHOUSE_STOCK_REPORT_EMPTY';
+  end if;
+end $$;
 
 -- LIVE
 select public.as_user((select id from public.profiles where role = 'LIVE' limit 1));
@@ -220,6 +238,57 @@ begin
   where product_id = v_product_id and location_id = v_location_id;
 
   raise notice 'SALE_OK: transaction_id=% invoice_no=% key=% remaining_stock=%', v_sale.id, v_sale.invoice_no, v_key, v_stock_after;
+end $$;
+
+-- 6b) WAREHOUSE may sell only from its assigned warehouse.
+do $$
+declare
+  v_warehouse_id uuid;
+  v_location_id uuid;
+  v_other_location_id uuid;
+  v_product_id uuid;
+  v_sale public.transactions;
+begin
+  select id, location_id into v_warehouse_id, v_location_id
+  from public.profiles where role = 'WAREHOUSE' and active limit 1;
+  select id into v_other_location_id
+  from public.locations where id <> v_location_id order by name limit 1;
+  select s.product_id into v_product_id
+  from public.stocks s
+  join public.products p on p.id = s.product_id and p.active
+  where s.location_id = v_location_id and s.quantity > 0
+  order by s.quantity desc limit 1;
+
+  if v_warehouse_id is null or v_location_id is null or v_other_location_id is null or v_product_id is null then
+    raise notice 'SKIP_WAREHOUSE_SALE_TEST: missing assigned warehouse, other location, or stocked product';
+    return;
+  end if;
+
+  perform public.as_user(v_warehouse_id);
+  select public.record_sale(
+    v_location_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'quantity', 1, 'unit_price', 150000)),
+    0,
+    'CASH'::public.payment_method,
+    150000,
+    gen_random_uuid()
+  ) into v_sale;
+
+  begin
+    perform public.record_sale(
+      v_other_location_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'quantity', 1, 'unit_price', 150000)),
+      0,
+      'CASH'::public.payment_method,
+      150000,
+      gen_random_uuid()
+    );
+    raise exception 'WAREHOUSE_CROSS_LOCATION_SALE_ALLOWED';
+  exception when others then
+    if sqlerrm <> 'PERMISSION_DENIED' then raise; end if;
+  end;
+
+  raise notice 'WAREHOUSE_SALE_SCOPE_OK: transaction_id=% warehouse=%', v_sale.id, v_location_id;
 end $$;
 
 -- 7) Repeat same idempotency key must not create duplicate transactions.
