@@ -1205,3 +1205,49 @@ html, body, #root, .app-shell, .main-content { background: var(--surface); color
 .select-wrap { border-right-color: var(--ink); }
 select option { background: var(--paper); color: var(--ink); font-weight: 700; }
 select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2px; box-shadow: 3px 3px 0 var(--ink); }
+.transfer-alert-close, .cart-close-button, .mobile-sheet-heading > .icon-button, .operation-dialog .more-button, .pos-page .cart-line > button, .remove-line {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: var(--line);
+  border-radius: 0;
+  background: var(--coral);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1;
+}
+.transfer-alert-close:hover, .cart-close-button:hover, .mobile-sheet-heading > .icon-button:hover, .operation-dialog .more-button:hover, .pos-page .cart-line > button:hover, .remove-line:hover,
+.transfer-alert-close:active, .cart-close-button:active, .mobile-sheet-heading > .icon-button:active, .operation-dialog .more-button:active, .pos-page .cart-line > button:active, .remove-line:active {
+  background: var(--coral-deep);
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.pos-page .cart-panel-popup .cart-line {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 10px 12px;
+  padding: 12px 60px 12px 12px;
+  border: var(--line);
+  border-radius: 0;
+  background: var(--paper);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.pos-page .cart-panel-popup .cart-line > div:first-child { grid-column: 1 / -1; min-width: 0; }
+.pos-page .cart-panel-popup .cart-line strong { display: block; margin: 0 0 10px; color: var(--ink); font-size: 14px; line-height: 1.25; }
+.pos-page .cart-panel-popup .cart-line small {
+  display: grid;
+  grid-template-columns: minmax(74px, .7fr) 18px minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+  width: 100%;
+  color: var(--ink);
+}
+.pos-page .cart-panel-popup .cart-field { display: grid !important; grid-template-columns: 1fr; gap: 4px !important; min-width: 0; color: var(--ink) !important; }
+.pos-page .cart-panel-popup .cart-field input, .pos-page .cart-panel-popup .cart-line > div > input { width: 100%; min-width: 0; min-height: 42px; padding: 8px 9px; border: var(--line); border-radius: 0; background: var(--paper); color: var(--ink); font-size: 14px; }
+.pos-page .cart-panel-popup .cart-line small > span { align-self: end; padding-bottom: 12px; color: var(--ink); font-weight: 900; text-align: center; }
+.pos-page .cart-panel-popup .cart-line > button { top: 12px; right: 12px; }
+.stock-summary-card span, .stock-summary-card strong, .stock-summary-card small { color: var(--ink); }
+.stock-summary-card strong { font-weight: 900; }

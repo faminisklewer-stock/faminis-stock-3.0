@@ -1,5 +1,7 @@
 import { Component, useCallback, useEffect, useState } from 'react'
 import type { ErrorInfo, FormEvent, ReactNode } from 'react'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -493,11 +495,13 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
 
   const locationId = dashboard.locations.find((item) => item.name === location)?.id
   const visibleTransactions = dashboard.transactions.filter((item) => !locationId || item.location_id === locationId)
-  const visibleStock = dashboard.stock.filter((item) => !locationId || item.location_id === locationId)
+  const activeProductIds = new Set(dashboard.products.map((item) => item.id))
+  const activeLocationIds = new Set(dashboard.locations.map((item) => item.id))
+  const visibleStock = dashboard.stock.filter((item) => activeProductIds.has(item.product_id) && activeLocationIds.has(item.location_id) && (!locationId || item.location_id === locationId))
   const visibleMovements = dashboard.movements.filter((item) => !locationId || item.location_id === locationId)
   const revenue = visibleTransactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const itemsSold = visibleMovements.filter((item) => item.movement_type === 'SALE').reduce((sum, item) => sum + Math.abs(item.quantity), 0)
-  const lowStock = visibleStock.filter((item) => item.quantity <= 5).length
+  const lowStock = new Set(visibleStock.filter((item) => item.quantity <= 5).map((item) => `${item.product_id}:${item.location_id}`)).size
   const overviewLocations = [{ id: 'all', name: 'Semua lokasi' }, ...dashboard.locations]
   const locationRevenue = overviewLocations
     .filter((item) => item.id !== 'all')
@@ -670,26 +674,26 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       ['Jumlah pembelian', String(report.summary.totalPurchases)],
       ['Jumlah stok menipis', String(report.summary.lowStockCount)],
       ['Total stok tersedia', String(report.summary.totalStock)],
-      ['Tanggal export', new Date().toLocaleString('id-ID')],
+      ['Dibuat pada', new Date().toLocaleString('id-ID')],
       [],
-      ['SALES'],
-      ['invoice_no', 'location', 'product_name', 'quantity', 'grand_total', 'created_at', 'payment_status'],
+      ['PENJUALAN'],
+      ['Nomor invoice', 'Lokasi', 'Produk', 'Jumlah', 'Total', 'Waktu transaksi', 'Status pembayaran'],
       ...report.salesRows.map((row) => [row.invoice_no, row.location, row.product_name, row.quantity, row.grand_total, row.created_at, row.payment_status]),
       [],
-      ['TRANSFERS'],
-      ['transfer_id', 'source', 'destination', 'status', 'product_name', 'shipped_quantity', 'received_quantity', 'notes', 'created_at'],
+      ['TRANSFER'],
+      ['Nomor transfer', 'Lokasi asal', 'Lokasi tujuan', 'Status', 'Produk', 'Jumlah kirim', 'Jumlah terima', 'Catatan', 'Waktu dibuat'],
       ...report.transferRows.map((row) => [row.transfer_id, row.source, row.destination, row.status, row.product_name, row.shipped_quantity, row.received_quantity, row.notes, row.created_at]),
       [],
-      ['PURCHASES'],
-      ['supplier', 'location', 'product_name', 'quantity', 'created_at'],
+      ['PEMBELIAN'],
+      ['Pemasok', 'Lokasi', 'Produk', 'Jumlah', 'Waktu penerimaan'],
       ...report.purchaseRows.map((row) => [row.supplier, row.location, row.product_name, row.quantity, row.created_at]),
       [],
-      ['STOCK'],
-      ['location', 'product', 'quantity'],
+      ['STOK'],
+      ['Lokasi', 'Produk', 'Jumlah stok'],
       ...report.stockRows.map((row) => [row.location, row.product, row.quantity]),
       [],
-      ['MOVEMENTS'],
-      ['movement_type', 'location', 'quantity', 'created_at'],
+      ['PERGERAKAN STOK'],
+      ['Jenis pergerakan', 'Lokasi', 'Jumlah', 'Waktu pergerakan'],
       ...report.movementRows.map((row) => [row.movement_type, row.location, row.quantity, row.created_at]),
     ]
 
@@ -710,10 +714,100 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
 
   function downloadPdfReport(scope: 'all' | 'selected' = 'all') {
     const report = getOperationalReportData(scope)
+    const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageWidth = document.internal.pageSize.getWidth()
+    let cursorY = 18
+    const ink = '#111312'
+    const aqua = '#daf5f0'
+    const yellow = '#ffdb58'
+    const coral = '#ffa07a'
+    const blue = '#87ceeb'
+    const green = '#b5d2ad'
+
+    document.setFillColor(aqua)
+    document.rect(0, 0, pageWidth, document.internal.pageSize.getHeight(), 'F')
+    document.setFillColor(yellow)
+    document.setDrawColor(ink)
+    document.setLineWidth(0.8)
+    document.rect(12, 10, 18, 18, 'FD')
+    document.setTextColor(ink)
+    document.setFont('helvetica', 'bold')
+    document.setFontSize(18)
+    document.text('F', 18.5, 22.5)
+    document.setFontSize(20)
+    document.text('Laporan Operasional', 36, 18)
+    document.setFont('helvetica', 'normal')
+    document.setFontSize(9)
+    document.text('Faminis Barokah', 36, 24)
+    document.setFillColor(coral)
+    document.rect(pageWidth - 64, 10, 52, 12, 'FD')
+    document.setFont('helvetica', 'bold')
+    document.text(new Date().toLocaleDateString('id-ID'), pageWidth - 59, 17.5)
+    cursorY = 38
+
+    const summaryItems = [
+      ['Role', report.summary.role, yellow],
+      ['Lokasi', report.summary.locationScope, blue],
+      ['Omzet', formatCurrency(report.summary.totalRevenue), green],
+      ['Transaksi', String(report.summary.totalTransactions), yellow],
+      ['Transfer', String(report.summary.totalTransfers), blue],
+      ['Pembelian', String(report.summary.totalPurchases), coral],
+    ] as const
+    const summaryWidth = (pageWidth - 24 - 20) / 6
+    summaryItems.forEach(([label, value, fill], index) => {
+      const x = 12 + index * (summaryWidth + 4)
+      document.setFillColor(fill)
+      document.rect(x, cursorY, summaryWidth, 18, 'FD')
+      document.setTextColor(ink)
+      document.setFontSize(7)
+      document.text(label.toUpperCase(), x + 3, cursorY + 5)
+      document.setFontSize(10)
+      document.text(String(value), x + 3, cursorY + 12)
+    })
+    cursorY += 28
+
+    const addTable = (title: string, headers: string[], rows: Array<Array<string | number>>, fill: string) => {
+      if (cursorY > 175) { document.addPage(); document.setFillColor(aqua); document.rect(0, 0, pageWidth, document.internal.pageSize.getHeight(), 'F'); cursorY = 16 }
+      document.setFillColor(fill)
+      document.setDrawColor(ink)
+      document.rect(12, cursorY, pageWidth - 24, 9, 'FD')
+      document.setTextColor(ink)
+      document.setFont('helvetica', 'bold')
+      document.setFontSize(11)
+      document.text(title, 15, cursorY + 6)
+      autoTable(document, { startY: cursorY + 11, head: [headers], body: rows, theme: 'grid', styles: { font: 'helvetica', fontSize: 7, textColor: [17, 19, 18], lineColor: [17, 19, 18], lineWidth: 0.25, cellPadding: 2 }, headStyles: { fillColor: [255, 219, 88], textColor: [17, 19, 18], fontStyle: 'bold' }, alternateRowStyles: { fillColor: [255, 254, 250] }, margin: { left: 12, right: 12 } })
+      cursorY = (document as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? cursorY + 30
+      cursorY += 10
+    }
+
+    addTable('Penjualan', ['Nomor invoice', 'Lokasi', 'Produk', 'Jumlah', 'Total', 'Waktu'], report.salesRows.map((row) => [row.invoice_no, row.location, row.product_name, row.quantity, formatCurrency(Number(row.grand_total)), new Date(row.created_at).toLocaleString('id-ID')]), yellow)
+    addTable('Transfer', ['Nomor transfer', 'Asal', 'Tujuan', 'Status', 'Produk', 'Kirim', 'Terima'], report.transferRows.map((row) => [row.transfer_id, row.source, row.destination, row.status, row.product_name, row.shipped_quantity, row.received_quantity]), blue)
+    addTable('Pembelian', ['Pemasok', 'Lokasi', 'Produk', 'Jumlah', 'Waktu'], report.purchaseRows.map((row) => [row.supplier, row.location, row.product_name, row.quantity, new Date(row.created_at).toLocaleString('id-ID')]), green)
+    addTable('Stok per lokasi', ['Lokasi', 'Produk', 'Jumlah stok'], report.stockRows.map((row) => [row.location, row.product, row.quantity]), yellow)
+    addTable('Pergerakan stok', ['Jenis', 'Lokasi', 'Jumlah', 'Waktu'], report.movementRows.map((row) => [row.movement_type, row.location, row.quantity, new Date(row.created_at).toLocaleString('id-ID')]), coral)
+    document.save(`laporan-operasional-${new Date().toISOString().slice(0, 10)}.pdf`)
+    return
+
+    const headerLabels: Record<string, string> = {
+      invoice_no: 'Nomor invoice',
+      location: 'Lokasi',
+      product_name: 'Produk',
+      quantity: 'Jumlah',
+      grand_total: 'Total',
+      created_at: 'Waktu',
+      transfer_id: 'Nomor transfer',
+      source: 'Lokasi asal',
+      destination: 'Lokasi tujuan',
+      status: 'Status',
+      shipped_quantity: 'Jumlah kirim',
+      received_quantity: 'Jumlah terima',
+      supplier: 'Pemasok',
+      movement_type: 'Jenis pergerakan',
+    }
     const tableRows = (rows: Array<{ [key: string]: string | number }>, headers: string[]) => `
       <table>
         <thead>
-          <tr>${headers.map((header) => `<th>${header}</th>`).join('')}</tr>
+          <tr>${headers.map((header) => `<th>${headerLabels[header] ?? header}</th>`).join('')}</tr>
         </thead>
         <tbody>
           ${rows.map((row) => `<tr>${headers.map((header) => `<td>${row[header] ?? '-'}</td>`).join('')}</tr>`).join('')}
@@ -721,7 +815,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       </table>
     `
 
-    const printWindow = window.open('', '_blank', 'width=1200,height=900')
+    const printWindow = window.open('', '_blank', 'width=1200,height=900') as Window
     if (!printWindow) return
 
     const locationChartRows = locationRevenue.length
@@ -748,7 +842,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         </div>
         <div class="chart-card">
           <div class="card-title">
-            <span>Revenue by location</span>
+            <span>Omzet berdasarkan lokasi</span>
             <strong>${formatCurrency(Math.max(...locationRevenue.map((item) => item.total), 0))}</strong>
           </div>
           ${locationChartRows}
@@ -970,6 +1064,33 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             padding: 12px 0;
             color: var(--muted);
           }
+          :root {
+            --bg: #daf5f0;
+            --panel: #fffefa;
+            --border: #111312;
+            --brand: #111312;
+            --brand-soft: #fdfd96;
+            --text: #111312;
+            --muted: #3f514c;
+            --accent: #69d2e7;
+            --success: #7fbc8c;
+          }
+          body { background: var(--bg); color: var(--text); }
+          .header { border-bottom: 2px solid var(--border); }
+          .brand-mark { width: 44px; height: 44px; border: 2px solid var(--border); border-radius: 0; background: #ffdb58; color: var(--text); box-shadow: 4px 4px 0 var(--border); }
+          h1, h2, h3 { color: var(--brand); font-weight: 900; }
+          .subtitle, .empty-note { color: var(--muted); }
+          .date-badge { border: 2px solid var(--border); border-radius: 0; background: #f8d6b3; color: var(--brand); box-shadow: 3px 3px 0 var(--border); }
+          .summary-shell { gap: 20px; }
+          .summary-box div, .chart-card, .location-group { border: 2px solid var(--border); border-radius: 0; background: var(--panel); box-shadow: 4px 4px 0 var(--border); }
+          .summary-box span, .card-title strong { color: var(--brand); }
+          .chart-track { height: 12px; border: 2px solid var(--border); border-radius: 0; background: #e3dff2; }
+          .chart-track i { border-radius: 0; background: #69d2e7; }
+          .location-group h3 { background: #fdfd96; color: var(--brand); border-bottom: 2px solid var(--border); }
+          table { border: 2px solid var(--border); border-radius: 0; }
+          th { background: #ffdb58; color: var(--brand); border-bottom: 2px solid var(--border); }
+          th, td { border-color: #a9bdb7; }
+          tbody tr:nth-child(even) { background: #f8d6b3; }
           @media print {
             body { margin: 16px; }
             section { margin-top: 18px; }
@@ -1071,7 +1192,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
           <section className="metrics-grid"><MetricCard label="Total omzet" value={dashboardState === 'loading' ? 'Memuat...' : formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Jumlah transaksi" value={dashboardState === 'loading' ? 'Memuat...' : String(visibleTransactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /><MetricCard label="Barang terjual" value={dashboardState === 'loading' ? 'Memuat...' : formatNumber(itemsSold)} change="Data terbaru" tone="orange" icon={Package} /><MetricCard label="Stok menipis" value={dashboardState === 'loading' ? 'Memuat...' : String(lowStock)} change={lowStock ? 'Perlu diperiksa' : 'Stok aman'} tone={lowStock ? 'red' : 'green'} icon={Boxes} /></section>
           <section className="dashboard-grid"><div className="panel chart-panel"><div className="panel-heading"><div><h2>Revenue overview</h2><p>Monthly performance across all locations</p></div><div className="legend"><span><i className="legend-dot revenue"></i>Revenue</span><span><i className="legend-dot orders"></i>Orders</span></div></div><div className="chart dynamic-chart"><div className="chart-y"><span>{formatCurrency(maxChartRevenue)}</span><span>{formatCurrency(maxChartRevenue * .66)}</span><span>{formatCurrency(maxChartRevenue * .33)}</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d={chartFill} fill="url(#fill)" /><path d={chartPoints} fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x">{lastSevenDays.map((item) => <span key={item.label}>{item.label}</span>)}</div></div></div><div className="chart" style={{ display: 'none' }}><div className="chart-y"><span>15m</span><span>10m</span><span>5m</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12 V190 H0Z" fill="url(#fill)" /><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12" fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>01 Sep</span><span>05 Sep</span><span>10 Sep</span><span>15 Sep</span><span>20 Sep</span><span>22 Sep</span></div></div></div></div><div className="panel performance-panel"><div className="panel-heading"><div><h2>Location performance</h2><p>Revenue by location</p></div></div><div className="location-list dynamic-location-list">{locationRevenue.map((item, index) => <LocationBar key={item.id} name={item.name} value={formatCurrency(item.total)} percent={`${Math.max(18, (item.total / maxLocationRevenue) * 100)}%`} color={index % 2 === 0 ? 'brown' : index % 3 === 0 ? 'orange' : 'green'} />)}</div><div className="location-list" style={{ display: 'none' }}><LocationBar name="Ruko 3" value="Rp 12.8m" percent="82%" color="brown" /><LocationBar name="Live" value="Rp 10.4m" percent="68%" color="orange" /><LocationBar name="Ruko 1" value="Rp 8.9m" percent="58%" color="blue" /><LocationBar name="Ruko 2" value="Rp 7.6m" percent="50%" color="green" /><LocationBar name="Ruko 4" value="Rp 5.2m" percent="34%" color="purple" /></div><button className="text-button" type="button" onClick={() => setActive('Laporan')}>View full report <ChevronRight className="reference-chevron" size={18} /></button></div></section>
-          <section className="lower-grid"><div className="panel table-panel recent-sales-panel"><div className="panel-heading"><div><h2>Recent sales</h2><p>Latest transactions from Supabase</p></div><button className="text-button" onClick={() => setActive('Laporan')}>View all <ChevronRight className="reference-chevron" size={18} /></button></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Location</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>{visibleTransactions.filter((sale) => sale.invoice_no.toLowerCase().includes(query.toLowerCase())).slice(0, 6).map((sale) => <tr key={sale.id}><td><strong>{sale.invoice_no}</strong></td><td>{dashboard.locations.find((item) => item.id === sale.location_id)?.name ?? 'Location'}</td><td><strong>{formatCurrency(Number(sale.grand_total))}</strong></td><td>{new Date(sale.created_at).toLocaleDateString('id-ID')}</td><td><span className="status"><i></i>Paid</span></td></tr>)}</tbody></table>{dashboardState === 'ready' && visibleTransactions.length === 0 && <div className="empty-state">Belum ada transaksi pada scope Anda.</div>}</div></div><div className="panel activity-panel"><div className="panel-heading"><div><h2>Activity</h2><p>Latest stock movements</p></div><button className="more-button" onClick={() => setActive('Stok')}>•••</button></div><div className="activity-list">{visibleMovements.slice(0, 3).map((movement) => <div className="activity-item" key={movement.id}><div className="activity-icon green"><ArrowDownToLine size={16} /></div><div><strong>{movement.movement_type.replace('_', ' ')}</strong><p>{movement.quantity > 0 ? '+' : ''}{movement.quantity} units</p><small>{new Date(movement.created_at).toLocaleString('id-ID')}</small></div></div>)}</div>{dashboardState === 'ready' && visibleMovements.length === 0 && <div className="empty-state">Belum ada activity.</div>}<button className="text-button" onClick={() => setActive('Stok')}>View activity log <ChevronRight className="reference-chevron" size={18} /></button></div></section>
+          <section className="lower-grid"><div className="panel table-panel recent-sales-panel"><div className="panel-heading"><div><h2>Recent sales</h2><p>Latest transactions from Supabase</p></div><button className="text-button" onClick={() => setActive('Laporan')}>View all <ChevronRight className="reference-chevron" size={18} /></button></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Location</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead><tbody>{visibleTransactions.filter((sale) => sale.invoice_no.toLowerCase().includes(query.toLowerCase())).slice(0, 6).map((sale) => <tr key={sale.id}><td><strong>{sale.invoice_no}</strong></td><td>{dashboard.locations.find((item) => item.id === sale.location_id)?.name ?? 'Location'}</td><td><strong>{formatCurrency(Number(sale.grand_total))}</strong></td><td>{new Date(sale.created_at).toLocaleDateString('id-ID')}</td><td><span className="status"><i></i>Paid</span></td></tr>)}</tbody></table>{dashboardState === 'ready' && visibleTransactions.length === 0 && <div className="empty-state">Belum ada transaksi pada scope Anda.</div>}</div></div><div className="panel activity-panel"><div className="panel-heading"><div><h2>Activity</h2><p>Latest stock movements</p></div><button className="more-button" onClick={() => setActive('Stok')}>•••</button></div><div className="activity-list">{visibleMovements.slice(0, 3).map((movement) => <div className="activity-item" key={movement.id}><div className="activity-icon green"><ArrowDownToLine size={16} /></div><div><strong>{movement.movement_type.replace('_', ' ')}</strong><p>{movement.quantity > 0 ? '+' : ''}{movement.quantity} units</p><small>{new Date(movement.created_at).toLocaleString('id-ID')}</small></div></div>)}</div>{dashboardState === 'ready' && visibleMovements.length === 0 && <div className="empty-state">Belum ada activity.</div>}<button className="text-button" onClick={() => setActive('Audit Log')}>View activity log <ChevronRight className="reference-chevron" size={18} /></button></div></section>
           </>}
         </div>
       </main>
