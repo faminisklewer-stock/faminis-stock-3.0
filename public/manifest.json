@@ -4,8 +4,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f8f7f4",
-  "theme_color": "#4e3024",
+  "background_color": "#f7f1e8",
+  "theme_color": "#f7cf58",
   "description": "Inventory and point of sale operations for Faminis Barokah.",
   "icons": [
     { "src": "/icons/faminis-192.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any maskable" },

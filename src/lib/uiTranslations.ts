@@ -9,6 +9,8 @@ const UI_TRANSLATIONS: Record<string, string> = {
   Activity: 'Aktivitas',
   'Latest stock movements': 'Pergerakan stok terbaru',
   'View all': 'Lihat semua',
+  'View full report': 'Buka laporan lengkap',
+  'Revenue by location': 'Omzet berdasarkan lokasi',
   'View activity log': 'Lihat log aktivitas',
   'New sale': 'Transaksi baru',
   'POINT OF SALE': 'KASIR',
