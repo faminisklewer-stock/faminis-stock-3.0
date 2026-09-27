@@ -2129,10 +2129,12 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
 function PurchasesView({ profile, locations }: { profile: Profile; locations: Array<{ id: string; name: string }> }) {
   const [locationId, setLocationId] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [supplier, setSupplier] = useState('')
-  const [sku, setSku] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [productId, setProductId] = useState('')
-  const [products, setProducts] = useState<Array<{ id: string; sku: string; name: string }>>([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all')
+  const [categories, setCategories] = useState<CategoryRecord[]>([])
+  const [products, setProducts] = useState<ProductRecord[]>([])
+  const [productsLoading, setProductsLoading] = useState(true)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -2142,11 +2144,25 @@ function PurchasesView({ profile, locations }: { profile: Profile; locations: Ar
 
   useEffect(() => {
     if (!client) return
-    void client.from('products').select('id, sku, name, category_id').eq('active', true).order('name').then(({ data }) => setProducts(filterApprovedProducts((data ?? []) as Array<{ id: string; sku: string; name: string; category_id?: string | null }>)))
+    let mounted = true
+    setProductsLoading(true)
+    void Promise.all([
+      client.from('categories').select('id, name, active').eq('active', true).order('name'),
+      client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
+    ]).then(([categoryResult, productResult]) => {
+      if (!mounted) return
+      if (categoryResult.error || productResult.error) setError('Produk dan kategori tidak dapat dimuat dari Supabase.')
+      else {
+        setCategories(getApprovedCategoryList((categoryResult.data ?? []) as CategoryRecord[]))
+        setProducts((productResult.data ?? []) as ProductRecord[])
+        setError('')
+      }
+      setProductsLoading(false)
+    })
+    return () => { mounted = false }
   }, [client])
   useEffect(() => { if (!locationId && locations[0]?.id) setLocationId(locations[0].id) }, [locationId, locations])
-  const selectedProduct = products.find((product) => product.id === productId)
-  const matches = products.filter((product) => `${product.sku} ${product.name}`.toLowerCase().includes(sku.toLowerCase())).slice(0, 6)
+  const visibleProducts = products.filter((product) => selectedCategoryId === 'all' || getProductCategoryId(product, categories) === selectedCategoryId)
 
   async function savePurchase() {
     if (!client || !canPurchase) return
@@ -2155,10 +2171,10 @@ function PurchasesView({ profile, locations }: { profile: Profile; locations: Ar
     const { error: rpcError } = await client.rpc('record_purchase', { p_location_id: locationId, p_supplier: supplier.trim(), p_items: [{ product_id: productId, quantity: Number(quantity) }] })
     setLoading(false)
     if (rpcError) { setError('Purchase gagal disimpan. Pastikan role Anda WAREHOUSE atau MASTER.'); return }
-    setMessage('Purchase berhasil disimpan dan stok bertambah.'); setSupplier(''); setSku(''); setProductId(''); setQuantity('1')
+    setMessage('Purchase berhasil disimpan dan stok bertambah.'); setSupplier(''); setProductId(''); setQuantity('1')
   }
   if (!canPurchase) return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PURCHASES</p><h1>Akses terbatas</h1><p className="subtitle">Hanya MASTER dan WAREHOUSE yang dapat mencatat penerimaan barang.</p></div></div></section>
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PURCHASES</p><h1>Receive stock</h1><p className="subtitle">Catat barang masuk melalui transaksi database atomic.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={profile.role !== 'MASTER'}>{purchaseLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><div className="panel purchase-form"><label>Supplier<input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Nama supplier" /></label><label>Product<input value={selectedProduct ? `${selectedProduct.sku} - ${selectedProduct.name}` : sku} onChange={(event) => { setSku(event.target.value); setProductId('') }} placeholder="Cari SKU atau nama produk" />{sku && !selectedProduct && <div className="suggestions">{matches.map((product) => <button key={product.id} onClick={() => { setProductId(product.id); setSku(product.sku) }}>{product.sku} - {product.name}</button>)}</div>}</label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" onClick={() => void savePurchase()} disabled={loading}>{loading ? 'Saving...' : 'Save purchase'}</button></div></section>
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PURCHASES</p><h1>Receive stock</h1><p className="subtitle">Catat barang masuk melalui transaksi database atomic.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={profile.role !== 'MASTER'}>{purchaseLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div><div className="panel purchase-form"><label>Supplier<input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Nama supplier" /></label><label>Kategori<select value={selectedCategoryId} onChange={(event) => { setSelectedCategoryId(event.target.value); setProductId('') }} disabled={productsLoading}><option value="all">Semua kategori</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>Product<select value={productId} onChange={(event) => setProductId(event.target.value)} disabled={productsLoading || !visibleProducts.length}><option value="">{productsLoading ? 'Memuat produk...' : visibleProducts.length ? 'Pilih produk' : 'Tidak ada produk'}</option>{visibleProducts.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label>Quantity<input type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" onClick={() => void savePurchase()} disabled={loading || productsLoading}>{loading ? 'Saving...' : 'Save purchase'}</button></div></section>
 }
 
 type CustomerRecord = {
