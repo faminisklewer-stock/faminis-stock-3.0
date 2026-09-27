@@ -59,6 +59,8 @@ input::placeholder, textarea::placeholder { color: #7b7068; opacity: 1; }
 .avatar-green { background: #d9e7d8; color: #5c7959; }
 .main-content { min-width: 0; flex: 1; }
 .topbar { height: 68px; border-bottom: 1px solid #ece3db; display: flex; align-items: center; justify-content: space-between; padding: 0 39px; background: #fffdfb; }
+.summary-period-select select { min-width: 84px; }
+.app-shell:has(.summary-period-select) .chart-panel .panel-heading p { display: none; }
 .breadcrumb { display: flex; gap: 10px; align-items: center; color: #a2948d; font-size: 12px; }.breadcrumb b { color: #d0c9c1; font-weight: 400; }.breadcrumb strong { color: #4d3d34; font-weight: 600; }
 .top-actions { display: flex; align-items: center; gap: 20px; }.connection { display: flex; align-items: center; gap: 6px; color: #5d8a66; font-size: 11px; }.icon-button, .more-button { display: grid; place-items: center; border: 0; background: transparent; color: #91877e; position: relative; }.notification i { position: absolute; right: 1px; top: 1px; width: 5px; height: 5px; border: 1px solid #fbfaf8; border-radius: 50%; background: #cf7d56; }.top-avatar { width: 31px; height: 31px; }
 .mobile-logout-button { display: none; }

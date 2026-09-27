@@ -71,6 +71,21 @@ const operationalNavItems: Array<{ label: string; icon: typeof LayoutDashboard }
   { label: 'Laporan', icon: Grid2X2 },
 ]
 
+function getInitialActiveMenu(profile: Profile) {
+  const defaultMenu = profile.role === 'MASTER' ? 'Ringkasan' : profile.role === 'OWNER' ? 'Laporan' : 'Kasir'
+  const availableMenus = profile.role === 'MASTER'
+    ? [...masterNavItems.map((item) => item.label), 'Pelanggan', 'Akses tim', 'Pengaturan']
+    : profile.role === 'OWNER'
+      ? ['Laporan']
+      : operationalNavItems.map((item) => item.label)
+  try {
+    const savedMenu = window.localStorage.getItem(`faminis:last-menu:${profile.id}`)
+    return savedMenu && availableMenus.includes(savedMenu) ? savedMenu : defaultMenu
+  } catch {
+    return defaultMenu
+  }
+}
+
 type DashboardData = {
   transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; sale_type?: 'ECER' | 'GROSIR'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
   transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
@@ -82,6 +97,20 @@ type DashboardData = {
   transferItems: Array<{ id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }>
   purchases: Array<{ id: string; supplier_name: string | null; location_id: string; created_at: string; created_by: string | null }>
   purchaseItems: Array<{ id: string; receipt_id: string; product_id: string; quantity: number; purchase_cost: number | null }>
+}
+
+type SummaryPeriod = 'daily' | 'weekly' | 'monthly'
+
+function getSummaryPeriodRange(period: SummaryPeriod, referenceDate = new Date()) {
+  const start = new Date(referenceDate)
+  start.setHours(0, 0, 0, 0)
+  if (period === 'weekly') start.setDate(start.getDate() - ((start.getDay() + 6) % 7))
+  if (period === 'monthly') start.setDate(1)
+  const end = new Date(start)
+  if (period === 'daily') end.setDate(end.getDate() + 1)
+  if (period === 'weekly') end.setDate(end.getDate() + 7)
+  if (period === 'monthly') end.setMonth(end.getMonth() + 1)
+  return { start, end }
 }
 
 type NotificationRecord = { id: string; action: string; description: string | null; created_at: string }
@@ -243,7 +272,8 @@ function ConfigurationState() {
 
 function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => void }) {
   const isMasterUser = profile.role === 'MASTER'
-  const [active, setActive] = useState(isMasterUser ? 'Ringkasan' : profile.role === 'OWNER' ? 'Laporan' : 'Kasir')
+  const [active, setActive] = useState(() => getInitialActiveMenu(profile))
+  const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>('daily')
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   useEffect(() => {
     if (!mobileMoreOpen) return
@@ -253,7 +283,17 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     document.addEventListener('keydown', closeWithEscape)
     return () => document.removeEventListener('keydown', closeWithEscape)
   }, [mobileMoreOpen])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(`faminis:last-menu:${profile.id}`, active)
+    } catch {
+      return
+    }
+  }, [active, profile.id])
   const [location, setLocation] = useState('Semua lokasi')
+  const summaryPeriodRange = getSummaryPeriodRange(summaryPeriod)
+  const summaryPeriodStart = summaryPeriodRange.start.toISOString()
+  const summaryPeriodEnd = summaryPeriodRange.end.toISOString()
   const visibleNavItems = isMasterUser ? masterNavItems : profile.role === 'OWNER' ? [{ label: 'Laporan', icon: Grid2X2 }] : operationalNavItems
   const mobilePrimaryItems = visibleNavItems.slice(0, isMasterUser ? 4 : visibleNavItems.length)
   const mobileMoreItems = isMasterUser
@@ -273,6 +313,10 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     purchaseItems: [],
   })
   const [dashboardState, setDashboardState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [summaryTransactions, setSummaryTransactions] = useState<DashboardData['transactions']>([])
+  const [summaryMovements, setSummaryMovements] = useState<DashboardData['movements']>([])
+  const [summaryState, setSummaryState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0)
   const [notifications, setNotifications] = useState<NotificationRecord[]>([])
   const [transferAlert, setTransferAlert] = useState<TransferAlert | null>(null)
 
@@ -458,6 +502,42 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }, [profile.id, active])
 
   useEffect(() => {
+    const refreshSummary = () => setSummaryRefreshKey((current) => current + 1)
+    window.addEventListener('faminis:data-changed', refreshSummary)
+    return () => window.removeEventListener('faminis:data-changed', refreshSummary)
+  }, [])
+
+  useEffect(() => {
+    if (!supabase || !isMasterUser || active !== 'Ringkasan') return
+    let mounted = true
+    void Promise.all([
+      supabase.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').gte('created_at', summaryPeriodStart).lt('created_at', summaryPeriodEnd).order('created_at', { ascending: false }),
+      supabase.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').gte('created_at', summaryPeriodStart).lt('created_at', summaryPeriodEnd).order('created_at', { ascending: false }),
+    ]).then(([transactionsResult, movementsResult]) => {
+      if (!mounted) return
+      if (transactionsResult.error || movementsResult.error) {
+        setSummaryState('error')
+        setDashboardState('error')
+        return
+      }
+      const transactions = (transactionsResult.data ?? []).map((transaction) => {
+        const payment = Array.isArray(transaction.payments) ? transaction.payments[0] : transaction.payments
+        return { ...transaction, payment_method: payment?.method ?? null }
+      })
+      setSummaryTransactions(transactions)
+      setSummaryMovements(movementsResult.data ?? [])
+      setSummaryState('ready')
+      setDashboardState('ready')
+    }).catch(() => {
+      if (mounted) {
+        setSummaryState('error')
+        setDashboardState('error')
+      }
+    })
+    return () => { mounted = false }
+  }, [active, isMasterUser, summaryPeriodStart, summaryPeriodEnd, summaryRefreshKey])
+
+  useEffect(() => {
     if (!supabase) return
     const client = supabase
     const channel = client.channel(`transfer-notifications-${profile.id}`)
@@ -494,11 +574,11 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }, [profile.id, profile.location_id, profile.role])
 
   const locationId = dashboard.locations.find((item) => item.name === location)?.id
-  const visibleTransactions = dashboard.transactions.filter((item) => !locationId || item.location_id === locationId)
+  const visibleTransactions = summaryTransactions.filter((item) => !locationId || item.location_id === locationId)
   const activeProductIds = new Set(dashboard.products.map((item) => item.id))
   const activeLocationIds = new Set(dashboard.locations.map((item) => item.id))
   const visibleStock = dashboard.stock.filter((item) => activeProductIds.has(item.product_id) && activeLocationIds.has(item.location_id) && (!locationId || item.location_id === locationId))
-  const visibleMovements = dashboard.movements.filter((item) => !locationId || item.location_id === locationId)
+  const visibleMovements = summaryMovements.filter((item) => !locationId || item.location_id === locationId)
   const revenue = visibleTransactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const itemsSold = visibleMovements.filter((item) => item.movement_type === 'SALE').reduce((sum, item) => sum + Math.abs(item.quantity), 0)
   const lowStock = new Set(visibleStock.filter((item) => item.quantity <= 5).map((item) => `${item.product_id}:${item.location_id}`)).size
@@ -506,25 +586,50 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const locationRevenue = overviewLocations
     .filter((item) => item.id !== 'all')
     .map((item) => {
-      const total = dashboard.transactions.filter((entry) => entry.location_id === item.id).reduce((sum, entry) => sum + Number(entry.grand_total), 0)
+      const total = summaryTransactions.filter((entry) => entry.location_id === item.id && (!locationId || entry.location_id === locationId)).reduce((sum, entry) => sum + Number(entry.grand_total), 0)
       return { ...item, total }
     })
     .sort((left, right) => right.total - left.total)
   const maxLocationRevenue = Math.max(...locationRevenue.map((item) => item.total), 1)
-  const revenueByLocalDate = new Map<string, number>()
+  const summaryPeriodLabels: Record<SummaryPeriod, string> = { daily: 'Harian', weekly: 'Mingguan', monthly: 'Bulanan' }
+  const summaryStartLabel = summaryPeriodRange.start.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+  const summaryEndDate = new Date(summaryPeriodRange.end)
+  summaryEndDate.setDate(summaryEndDate.getDate() - 1)
+  const summaryEndLabel = summaryEndDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+  const summaryRangeLabel = summaryPeriod === 'daily' ? summaryStartLabel : `${summaryStartLabel} - ${summaryEndLabel}`
+  const daysInSummaryMonth = new Date(summaryPeriodRange.end.getFullYear(), summaryPeriodRange.end.getMonth(), 0).getDate()
+  const chartBucketCount = summaryPeriod === 'daily'
+    ? 6
+    : summaryPeriod === 'weekly'
+      ? 7
+      : Math.ceil(daysInSummaryMonth / 7)
+  const revenueByChartBucket = new Map<string, number>()
   for (const transaction of visibleTransactions) {
     const date = new Date(transaction.created_at)
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-    revenueByLocalDate.set(key, (revenueByLocalDate.get(key) ?? 0) + Number(transaction.grand_total))
+    const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    const key = summaryPeriod === 'daily'
+      ? `${dayKey}-${String(Math.floor(date.getHours() / 4) * 4).padStart(2, '0')}`
+      : summaryPeriod === 'monthly'
+        ? `week-${Math.floor((date.getDate() - 1) / 7)}`
+        : dayKey
+    revenueByChartBucket.set(key, (revenueByChartBucket.get(key) ?? 0) + Number(transaction.grand_total))
   }
-  const lastSevenDays = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date()
-    date.setHours(0, 0, 0, 0)
-    date.setDate(date.getDate() - (6 - index))
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const lastSevenDays = Array.from({ length: chartBucketCount }, (_, index) => {
+    const date = new Date(summaryPeriodRange.start)
+    if (summaryPeriod === 'daily') date.setHours(index * 4)
+    if (summaryPeriod === 'weekly') date.setDate(date.getDate() + index)
+    if (summaryPeriod === 'monthly') date.setDate(date.getDate() + index * 7)
+    const dayKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    const key = summaryPeriod === 'daily'
+      ? `${dayKey}-${String(index * 4).padStart(2, '0')}`
+      : summaryPeriod === 'monthly'
+        ? `week-${index}`
+        : dayKey
     return {
-      label: date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }),
-      total: revenueByLocalDate.get(key) ?? 0,
+      label: summaryPeriod === 'daily'
+        ? `${String(index * 4).padStart(2, '0')}:00`
+        : date.toLocaleDateString('id-ID', { day: '2-digit', month: summaryPeriod === 'weekly' ? 'short' : undefined }),
+      total: revenueByChartBucket.get(key) ?? 0,
     }
   })
   const maxChartRevenue = Math.max(...lastSevenDays.map((item) => item.total), 1)
@@ -535,20 +640,26 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }).join(' ')
   const chartFill = `${chartPoints} L660,190 L18,190 Z`
 
-  function getOperationalReportData(scope: 'all' | 'selected' = 'all') {
+  function getOperationalReportData(scope: 'all' | 'selected' = 'all', periodScoped = false) {
     const allLocationIds = dashboard.locations.map((item) => item.id)
     const selectedScopeLocationIds = location === 'Semua lokasi'
       ? allLocationIds
       : [dashboard.locations.find((item) => item.name === location)?.id].filter(Boolean) as string[]
     const scopeLocationIds = (profile.role === 'MASTER' || profile.role === 'OWNER')
-      ? (scope === 'selected' ? selectedScopeLocationIds : allLocationIds)
+      ? (scope === 'selected' || periodScoped ? selectedScopeLocationIds : allLocationIds)
       : [profile.location_id].filter(Boolean) as string[]
+    const isInSummaryPeriod = (createdAt: string) => {
+      if (!periodScoped) return true
+      const timestamp = new Date(createdAt).getTime()
+      return timestamp >= summaryPeriodRange.start.getTime() && timestamp < summaryPeriodRange.end.getTime()
+    }
+    const reportTransactions = (periodScoped ? summaryTransactions : dashboard.transactions)
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInSummaryPeriod(item.created_at))
     const productName = (productId: string) => dashboard.products.find((product) => product.id === productId)?.name ?? 'Produk'
     const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Tidak diketahui'
     const formatTransferId = (id: string) => id.replace(/-/g, '').slice(0, 8).toUpperCase()
 
-    const salesRows = dashboard.transactions
-      .filter((item) => scopeLocationIds.includes(item.location_id))
+    const salesRows = reportTransactions
       .flatMap((item) => {
         const details = dashboard.transactionItems.filter((entry) => entry.transaction_id === item.id)
         if (!details.length) {
@@ -574,7 +685,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       })
 
     const transferRows = dashboard.transfers
-      .filter((item) => scopeLocationIds.includes(item.source_location_id) || scopeLocationIds.includes(item.destination_location_id))
+      .filter((item) => isInSummaryPeriod(item.created_at) && (scopeLocationIds.includes(item.source_location_id) || scopeLocationIds.includes(item.destination_location_id)))
       .flatMap((item) => {
         const details = dashboard.transferItems.filter((entry) => entry.transfer_id === item.id)
         if (!details.length) {
@@ -604,7 +715,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       })
 
     const purchaseRows = dashboard.purchases
-      .filter((item) => scopeLocationIds.includes(item.location_id))
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInSummaryPeriod(item.created_at))
       .flatMap((item) => {
         const details = dashboard.purchaseItems.filter((entry) => entry.receipt_id === item.id)
         if (!details.length) {
@@ -636,8 +747,8 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     })))
       .sort((left, right) => left.location.localeCompare(right.location) || left.product.localeCompare(right.product))
 
-    const movementRows = dashboard.movements
-      .filter((item) => scopeLocationIds.includes(item.location_id))
+    const movementRows = (periodScoped ? summaryMovements : dashboard.movements)
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInSummaryPeriod(item.created_at))
       .map((item) => ({
         movement_type: item.movement_type,
         location: locationName(item.location_id),
@@ -655,8 +766,8 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       summary: {
         role: profile.role,
         locationScope: scopeLocationIds.length ? scopeLocationIds.map((id) => locationName(id)).join(' | ') : 'Tidak ada lokasi',
-        totalRevenue: salesRows.reduce((sum, item) => sum + Number(item.grand_total), 0),
-        totalTransactions: salesRows.length,
+        totalRevenue: reportTransactions.reduce((sum, item) => sum + Number(item.grand_total), 0),
+        totalTransactions: reportTransactions.length,
         totalTransfers: transferRows.length,
         totalPurchases: purchaseRows.length,
         lowStockCount: stockRows.filter((item) => item.quantity <= 5).length,
@@ -666,11 +777,13 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }
 
   function downloadCsvReport(scope: 'all' | 'selected' = 'all') {
-    const report = getOperationalReportData(scope)
+    const periodScoped = active === 'Ringkasan'
+    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped)
     const csvData = [
       ['Laporan', 'Operasional Faminis'],
       ['Role user', report.summary.role],
       ['Batas lokasi', report.summary.locationScope],
+      ...(periodScoped ? [['Periode', `${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}`]] : []),
       ['Total omzet', formatCurrency(report.summary.totalRevenue)],
       ['Jumlah transaksi', String(report.summary.totalTransactions)],
       ['Jumlah transfer', String(report.summary.totalTransfers)],
@@ -716,7 +829,8 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }
 
   function downloadPdfReport(scope: 'all' | 'selected' = 'all') {
-    const report = getOperationalReportData(scope)
+    const periodScoped = active === 'Ringkasan'
+    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped)
     const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
     const pageWidth = document.internal.pageSize.getWidth()
     let cursorY = 18
@@ -742,11 +856,15 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     document.setFont('helvetica', 'normal')
     document.setFontSize(9)
     document.text('Faminis Barokah', 36, 24)
+    if (periodScoped) {
+      document.setFontSize(8)
+      document.text(`${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}`, 36, 30)
+    }
     document.setFillColor(coral)
     document.rect(pageWidth - 64, 10, 52, 12, 'FD')
     document.setFont('helvetica', 'bold')
     document.text(new Date().toLocaleDateString('id-ID'), pageWidth - 59, 17.5)
-    cursorY = 38
+    cursorY = periodScoped ? 42 : 38
 
     const summaryItems = [
       ['Role', report.summary.role, yellow],
@@ -1171,9 +1289,18 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }
 
   const pageTitle = active === 'Ringkasan' ? `Selamat pagi, ${profile.full_name.split(' ')[0]}.` : active
+  const changeSummaryPeriod = (period: SummaryPeriod) => {
+    if (period === summaryPeriod) return
+    setSummaryState('loading')
+    setDashboardState('loading')
+    setSummaryTransactions([])
+    setSummaryMovements([])
+    setSummaryPeriod(period)
+  }
+  const summaryPeriodControl = isMasterUser && active === 'Ringkasan' ? <label className="select-wrap summary-period-select"><span>Periode</span><select value={summaryPeriod} aria-label="Periode ringkasan" onChange={(event) => changeSummaryPeriod(event.target.value as SummaryPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option></select></label> : null
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" aria-busy={summaryPeriodControl ? summaryState === 'loading' : undefined}>
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">F</span><span>faminis<span className="brand-dot">.</span></span></div>
         <div className="workspace-switcher"><span className="workspace-icon"><Store size={16} /></span><span><small>Ruang kerja</small><strong>Faminis Barokah</strong></span></div>
@@ -1191,7 +1318,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         <div className="page-content">
           {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
           <section className="page-heading"><div><p className="eyebrow">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> Unduh CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> Cetak PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Buat transaksi</button></div></section>
-          <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label><span className="date-chip">{dashboard.transactions.length ? `${new Date(Math.min(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })} - ${new Date(Math.max(...dashboard.transactions.map((entry) => new Date(entry.created_at).getTime()))).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}` : 'Belum ada data'}</span></section>
+          <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>{summaryPeriodControl}<span className="date-chip">{summaryRangeLabel}</span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
           <section className="metrics-grid"><MetricCard label="Total omzet" value={dashboardState === 'loading' ? 'Memuat...' : formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Jumlah transaksi" value={dashboardState === 'loading' ? 'Memuat...' : String(visibleTransactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /><MetricCard label="Barang terjual" value={dashboardState === 'loading' ? 'Memuat...' : formatNumber(itemsSold)} change="Data terbaru" tone="orange" icon={Package} /><MetricCard label="Stok menipis" value={dashboardState === 'loading' ? 'Memuat...' : String(lowStock)} change={lowStock ? 'Perlu diperiksa' : 'Stok aman'} tone={lowStock ? 'red' : 'green'} icon={Boxes} /></section>
           <section className="dashboard-grid"><div className="panel chart-panel"><div className="panel-heading"><div><h2>Revenue overview</h2><p>Monthly performance across all locations</p></div><div className="legend"><span><i className="legend-dot revenue"></i>Revenue</span><span><i className="legend-dot orders"></i>Orders</span></div></div><div className="chart dynamic-chart"><div className="chart-y"><span>{formatCurrency(maxChartRevenue)}</span><span>{formatCurrency(maxChartRevenue * .66)}</span><span>{formatCurrency(maxChartRevenue * .33)}</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d={chartFill} fill="url(#fill)" /><path d={chartPoints} fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x">{lastSevenDays.map((item) => <span key={item.label}>{item.label}</span>)}</div></div></div><div className="chart" style={{ display: 'none' }}><div className="chart-y"><span>15m</span><span>10m</span><span>5m</span><span>0</span></div><div className="chart-area"><div className="grid-lines"><i></i><i></i><i></i><i></i></div><svg viewBox="0 0 700 190" preserveAspectRatio="none" aria-label="Revenue chart"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#9c603c" stopOpacity=".22" /><stop offset="100%" stopColor="#9c603c" stopOpacity="0" /></linearGradient></defs><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12 V190 H0Z" fill="url(#fill)" /><path d="M0,151 C35,144 40,120 72,130 S110,102 145,114 S178,75 215,100 S248,113 286,83 S322,93 356,66 S397,78 431,52 S468,69 504,42 S540,54 574,34 S618,47 650,20 S678,29 700,12" fill="none" stroke="#9c603c" strokeWidth="3" strokeLinecap="round" /></svg><div className="chart-x"><span>01 Sep</span><span>05 Sep</span><span>10 Sep</span><span>15 Sep</span><span>20 Sep</span><span>22 Sep</span></div></div></div></div><div className="panel performance-panel"><div className="panel-heading"><div><h2>Location performance</h2><p>Revenue by location</p></div></div><div className="location-list dynamic-location-list">{locationRevenue.map((item, index) => <LocationBar key={item.id} name={item.name} value={formatCurrency(item.total)} percent={`${Math.max(18, (item.total / maxLocationRevenue) * 100)}%`} color={index % 2 === 0 ? 'brown' : index % 3 === 0 ? 'orange' : 'green'} />)}</div><div className="location-list" style={{ display: 'none' }}><LocationBar name="Ruko 3" value="Rp 12.8m" percent="82%" color="brown" /><LocationBar name="Live" value="Rp 10.4m" percent="68%" color="orange" /><LocationBar name="Ruko 1" value="Rp 8.9m" percent="58%" color="blue" /><LocationBar name="Ruko 2" value="Rp 7.6m" percent="50%" color="green" /><LocationBar name="Ruko 4" value="Rp 5.2m" percent="34%" color="purple" /></div><button className="text-button" type="button" onClick={() => setActive('Laporan')}>View full report <ChevronRight className="reference-chevron" size={18} /></button></div></section>
@@ -1211,11 +1338,20 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
 function PosView({ profile, locations }: { profile: Profile; locations: Array<{ id: string; name: string }> }) {
   const [locationId, setLocationId] = useState(profile.location_id ?? locations[0]?.id ?? '')
   const [products, setProducts] = useState<PosProduct[]>([])
-  const [cart, setCart] = useState<CartItem[]>([])
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const savedCart = window.sessionStorage.getItem(`faminis:cart:${profile.id}`)
+      const parsedCart = savedCart ? JSON.parse(savedCart) : []
+      return Array.isArray(parsedCart)
+        ? parsedCart.filter((item): item is CartItem => Boolean(item) && typeof item.id === 'string' && typeof item.name === 'string' && Number.isFinite(item.quantity) && item.quantity > 0 && Number.isFinite(item.unitPrice) && item.unitPrice >= 0)
+        : []
+    } catch {
+      return []
+    }
+  })
   const [search, setSearch] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT'>('CASH')
   const [saleType, setSaleType] = useState<'ECER' | 'GROSIR'>('ECER')
-  const [paidAmount, setPaidAmount] = useState('')
   const [loading, setLoading] = useState(true)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -1224,6 +1360,16 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
 
   const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
+
+  useEffect(() => {
+    try {
+      const storageKey = `faminis:cart:${profile.id}`
+      if (cart.length) window.sessionStorage.setItem(storageKey, JSON.stringify(cart))
+      else window.sessionStorage.removeItem(storageKey)
+    } catch {
+      return
+    }
+  }, [cart, profile.id])
 
   useEffect(() => {
     const panel = document.querySelector<HTMLElement>('.pos-page .cart-panel')
@@ -1376,18 +1522,16 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
 
   async function checkout() {
     if (!client || !locationId || !cart.length) return
-    const amount = Number(paidAmount)
     if (cart.some((item) => item.unitPrice <= 0)) { setError('Masukkan harga manual untuk setiap produk.'); return }
-    if (!Number.isFinite(amount) || amount < total) { setError('Nominal pembayaran belum mencukupi.'); return }
     setCheckoutLoading(true); setError(''); setMessage('')
-    const { error: rpcError } = await client.rpc('record_sale', { p_location_id: locationId, p_items: cart.map((item) => ({ product_id: item.id, quantity: item.quantity, unit_price: item.unitPrice })), p_discount: 0, p_method: paymentMethod, p_paid_amount: amount, p_idempotency_key: crypto.randomUUID(), p_sale_type: saleType })
+    const { error: rpcError } = await client.rpc('record_sale', { p_location_id: locationId, p_items: cart.map((item) => ({ product_id: item.id, quantity: item.quantity, unit_price: item.unitPrice })), p_discount: 0, p_method: paymentMethod, p_paid_amount: total, p_idempotency_key: crypto.randomUUID(), p_sale_type: saleType })
     setCheckoutLoading(false)
     if (rpcError) { setError(rpcError.message.includes('INSUFFICIENT_STOCK') ? 'Stok tidak mencukupi.' : 'Transaksi gagal disimpan. Periksa koneksi dan coba lagi.'); return }
-    setCart([]); setPaidAmount(''); setMessage('Transaksi berhasil disimpan ke Supabase.');
+    setCart([]); setMessage('Transaksi berhasil disimpan ke Supabase.')
     window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
-  return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{availableLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SKU atau produk..." /></div><div className="category-pills" aria-label="Filter kategori produk">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button type="button" className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.category_name ?? 'Tanpa kategori'} · {product.stock} {product.unit} tersedia</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button type="button" className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label><label>Paid amount<input type="number" min="0" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="0" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button type="button" className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
+  return <section className="pos-page"><div className="pos-toolbar"><div><p className="eyebrow">POINT OF SALE</p><h1>New sale</h1><p className="subtitle">Harga jual dimasukkan manual saat checkout.</p></div><label className="pos-location">Location<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={!canChooseLocation}>{availableLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="pos-layout"><div className="panel product-picker"><div className="filter-search pos-search"><Search size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari SKU atau produk..." /></div><div className="category-pills" aria-label="Filter kategori produk">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>{loading ? <div className="empty-state">Loading products...</div> : <div className="product-grid">{filteredProducts.map((product) => <button type="button" className="product-tile" key={product.id} onClick={() => addProduct(product)} disabled={!product.stock}><span className="product-tile-icon"><Package size={18} /></span><strong>{product.name}</strong><small>{product.sku} · {product.category_name ?? 'Tanpa kategori'} · {product.stock} {product.unit} tersedia</small></button>)}{!filteredProducts.length && <div className="empty-state">No products found.</div>}</div>}</div><div className="panel cart-panel"><div className="panel-heading"><div><h2>Cart</h2><p>{cart.length} product line{cart.length === 1 ? '' : 's'}</p></div></div><div className="cart-lines">{cart.map((item) => <div className="cart-line" key={item.id}><div><strong>{item.name}</strong><small><label className="cart-field">Qty<input aria-label={`Quantity for ${item.name}`} type="number" min="1" max={item.stock} value={item.quantity} onChange={(event) => { const nextQuantity = Math.max(1, Math.min(item.stock, Number(event.target.value) || 1)); setCart((current) => current.map((line) => line.id === item.id ? { ...line, quantity: nextQuantity } : line)) }} /></label><span>x</span><input aria-label={`Price for ${item.name}`} type="number" min="0" value={item.unitPrice || ''} onChange={(event) => setCart((current) => current.map((line) => line.id === item.id ? { ...line, unitPrice: Number(event.target.value) } : line))} placeholder="Selling price" /></small></div><button type="button" className="remove-line" onClick={() => setCart((current) => current.filter((line) => line.id !== item.id))}>×</button></div>)}{!cart.length && <div className="empty-state">Cart is empty. Select a product to begin.</div>}</div><div className="checkout-box"><div className="total-row"><span>Total</span><strong>{formatCurrency(total)}</strong></div><label>Payment method<select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}>{['CASH', 'QRIS', 'TRANSFER', 'DEBIT', 'CREDIT'].map((method) => <option key={method}>{method}</option>)}</select></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button type="button" className="button button-primary login-submit" onClick={() => void checkout()} disabled={checkoutLoading || !cart.length}>{checkoutLoading ? 'Saving...' : 'Pay and save sale'}</button></div></div></div></section>
 }
 
 function ProductsView({ profile }: { profile: Profile }) {
@@ -1562,7 +1706,6 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
 function TransfersView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
   const [transfers, setTransfers] = useState<TransferRecord[]>([])
   const [transferItems, setTransferItems] = useState<TransferItemRecord[]>([])
-  const [products, setProducts] = useState<ProductRecord[]>([])
   const [allTransferProducts, setAllTransferProducts] = useState<ProductRecord[]>([])
   const isLocationUser = profile.role !== 'MASTER'
   const isOperationalUser = true
@@ -1574,6 +1717,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [destination, setDestination] = useState('')
   const [productId, setProductId] = useState('')
   const [sourceStocks, setSourceStocks] = useState<Array<{ product_id: string; quantity: number }>>([])
+  const [sourceStocksLocationId, setSourceStocksLocationId] = useState('')
   const [quantity, setQuantity] = useState('1')
   const [note, setNote] = useState('')
   const [receiptDrafts, setReceiptDrafts] = useState<Record<string, { quantity: string; note: string }>>({})
@@ -1586,6 +1730,9 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const client = supabase
   const canChooseSource = profile.role === 'MASTER' || profile.role === 'OWNER'
   const allowedSources = canChooseSource ? locations : locations.filter((location) => location.id === profile.location_id)
+  const products = sourceStocksLocationId === source
+    ? allTransferProducts.filter((product) => sourceStocks.some((stock) => stock.product_id === product.id && Number(stock.quantity) > 0))
+    : []
 
   async function sendTransferPush(transferId: string, status: string) {
     if (!client) return
@@ -1606,7 +1753,6 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
       const nextItems = (itemResult.data ?? []) as TransferItemRecord[]
       const loadedProducts = (productResult.data ?? []) as ProductRecord[]
       setTransfers((transferResult.data ?? []) as TransferRecord[])
-      setProducts(loadedProducts)
       setAllTransferProducts(loadedProducts)
       setTransferItems(nextItems)
       setReceiptDrafts((current) => {
@@ -1628,6 +1774,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   useEffect(() => {
     if (!client || !source) {
       setSourceStocks([])
+      setSourceStocksLocationId('')
       return
     }
     let mounted = true
@@ -1635,6 +1782,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
       if (!mounted) return
       if (stockError) setError('Stok lokasi sumber tidak dapat dimuat.')
       setSourceStocks((data ?? []) as Array<{ product_id: string; quantity: number }>)
+      setSourceStocksLocationId(source)
     })
     return () => { mounted = false }
   }, [client, source])
@@ -1661,7 +1809,9 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     if (!client) return
     const amount = Number(quantity)
     if (!source || !destination || source === destination || !productId || !Number.isInteger(amount) || amount <= 0) { setError('Source, tujuan, produk, dan quantity wajib diisi.'); return }
-    const availableStock = Number(sourceStocks.find((stock) => stock.product_id === productId)?.quantity ?? 0)
+    const availableStock = sourceStocksLocationId === source
+      ? Number(sourceStocks.find((stock) => stock.product_id === productId)?.quantity ?? 0)
+      : 0
     if (availableStock <= 0) { setError('Produk ini tidak memiliki stok di lokasi sumber.'); return }
     if (amount > availableStock) { setError(`Quantity transfer tidak boleh melebihi stok tersedia (${availableStock}).`); return }
     setSaving(true); setError(''); setMessage('')
@@ -1775,6 +1925,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const startDraftEdit = (transfer: TransferRecord) => {
     const item = transferItems.find((entry) => entry.transfer_id === transfer.id)
     const product = item ? allTransferProducts.find((candidate) => candidate.id === item.product_id) ?? products.find((candidate) => candidate.id === item.product_id) : undefined
+    setSource(transfer.source_location_id)
     setEditingTransferId(transfer.id)
     setDraftEditor({
       productId: item?.product_id ?? product?.id ?? '',
