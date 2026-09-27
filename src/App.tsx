@@ -97,9 +97,11 @@ type DashboardData = {
   transferItems: Array<{ id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }>
   purchases: Array<{ id: string; supplier_name: string | null; location_id: string; created_at: string; created_by: string | null }>
   purchaseItems: Array<{ id: string; receipt_id: string; product_id: string; quantity: number; purchase_cost: number | null }>
+  lowStockThreshold: number
 }
 
 type SummaryPeriod = 'daily' | 'weekly' | 'monthly'
+type ReportExportFilter = { periodLabel: string; startTime: number | null; endTime: number | null; locationIds: string[]; hasValidPeriod: boolean }
 
 function getSummaryPeriodRange(period: SummaryPeriod, referenceDate = new Date()) {
   const start = new Date(referenceDate)
@@ -111,6 +113,12 @@ function getSummaryPeriodRange(period: SummaryPeriod, referenceDate = new Date()
   if (period === 'weekly') end.setDate(end.getDate() + 7)
   if (period === 'monthly') end.setMonth(end.getMonth() + 1)
   return { start, end }
+}
+
+function getLowStockThreshold(value: unknown) {
+  const settingValue = typeof value === 'object' && value !== null && 'value' in value ? value.value : value
+  const threshold = Number(settingValue)
+  return (typeof settingValue === 'number' || typeof settingValue === 'string') && Number.isFinite(threshold) && threshold >= 0 ? threshold : 5
 }
 
 type NotificationRecord = { id: string; action: string; description: string | null; created_at: string }
@@ -311,6 +319,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     transferItems: [],
     purchases: [],
     purchaseItems: [],
+    lowStockThreshold: 5,
   })
   const [dashboardState, setDashboardState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [summaryTransactions, setSummaryTransactions] = useState<DashboardData['transactions']>([])
@@ -432,6 +441,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         transferItemsResult,
         purchasesResult,
         purchaseItemsResult,
+        settingsResult,
       ] = await Promise.allSettled([
         client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
@@ -443,6 +453,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         client.from('stock_transfer_items').select('id, transfer_id, product_id, shipped_quantity, received_quantity, discrepancy_reason'),
         client.from('purchase_receipts').select('id, supplier_name, location_id, created_at, created_by').order('created_at', { ascending: false }).limit(100),
         client.from('purchase_receipt_items').select('id, receipt_id, product_id, quantity, purchase_cost'),
+        client.from('settings').select('value').eq('key', 'low_stock_threshold').maybeSingle(),
       ])
       if (!mounted) return
 
@@ -492,6 +503,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         transferItems,
         purchases,
         purchaseItems,
+        lowStockThreshold: getLowStockThreshold(settingsResult.status === 'fulfilled' ? settingsResult.value.data?.value : undefined),
       })
       setDashboardState('ready')
     }
@@ -581,7 +593,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const visibleMovements = summaryMovements.filter((item) => !locationId || item.location_id === locationId)
   const revenue = visibleTransactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const itemsSold = visibleMovements.filter((item) => item.movement_type === 'SALE').reduce((sum, item) => sum + Math.abs(item.quantity), 0)
-  const lowStock = new Set(visibleStock.filter((item) => item.quantity <= 5).map((item) => `${item.product_id}:${item.location_id}`)).size
+  const lowStock = new Set(visibleStock.filter((item) => item.quantity <= dashboard.lowStockThreshold).map((item) => `${item.product_id}:${item.location_id}`)).size
   const overviewLocations = [{ id: 'all', name: 'Semua lokasi' }, ...dashboard.locations]
   const locationRevenue = overviewLocations
     .filter((item) => item.id !== 'all')
@@ -640,21 +652,26 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }).join(' ')
   const chartFill = `${chartPoints} L660,190 L18,190 Z`
 
-  function getOperationalReportData(scope: 'all' | 'selected' = 'all', periodScoped = false) {
+  function getOperationalReportData(scope: 'all' | 'selected' = 'all', periodScoped = false, exportFilter?: ReportExportFilter) {
     const allLocationIds = dashboard.locations.map((item) => item.id)
     const selectedScopeLocationIds = location === 'Semua lokasi'
       ? allLocationIds
       : [dashboard.locations.find((item) => item.name === location)?.id].filter(Boolean) as string[]
     const scopeLocationIds = (profile.role === 'MASTER' || profile.role === 'OWNER')
-      ? (scope === 'selected' || periodScoped ? selectedScopeLocationIds : allLocationIds)
+      ? exportFilter?.locationIds ?? (scope === 'selected' || periodScoped ? selectedScopeLocationIds : allLocationIds)
       : [profile.location_id].filter(Boolean) as string[]
-    const isInSummaryPeriod = (createdAt: string) => {
-      if (!periodScoped) return true
+    const isInReportDateScope = (createdAt: string) => {
+      if (periodScoped) {
+        const timestamp = new Date(createdAt).getTime()
+        return timestamp >= summaryPeriodRange.start.getTime() && timestamp < summaryPeriodRange.end.getTime()
+      }
+      if (!exportFilter) return true
+      if (!exportFilter.hasValidPeriod) return false
       const timestamp = new Date(createdAt).getTime()
-      return timestamp >= summaryPeriodRange.start.getTime() && timestamp < summaryPeriodRange.end.getTime()
+      return (exportFilter.startTime === null || timestamp >= exportFilter.startTime) && (exportFilter.endTime === null || timestamp <= exportFilter.endTime)
     }
     const reportTransactions = (periodScoped ? summaryTransactions : dashboard.transactions)
-      .filter((item) => scopeLocationIds.includes(item.location_id) && isInSummaryPeriod(item.created_at))
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
     const productName = (productId: string) => dashboard.products.find((product) => product.id === productId)?.name ?? 'Produk'
     const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Tidak diketahui'
     const formatTransferId = (id: string) => id.replace(/-/g, '').slice(0, 8).toUpperCase()
@@ -685,7 +702,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       })
 
     const transferRows = dashboard.transfers
-      .filter((item) => isInSummaryPeriod(item.created_at) && (scopeLocationIds.includes(item.source_location_id) || scopeLocationIds.includes(item.destination_location_id)))
+      .filter((item) => isInReportDateScope(item.created_at) && (scopeLocationIds.includes(item.source_location_id) || scopeLocationIds.includes(item.destination_location_id)))
       .flatMap((item) => {
         const details = dashboard.transferItems.filter((entry) => entry.transfer_id === item.id)
         if (!details.length) {
@@ -715,7 +732,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       })
 
     const purchaseRows = dashboard.purchases
-      .filter((item) => scopeLocationIds.includes(item.location_id) && isInSummaryPeriod(item.created_at))
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
       .flatMap((item) => {
         const details = dashboard.purchaseItems.filter((entry) => entry.receipt_id === item.id)
         if (!details.length) {
@@ -748,7 +765,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       .sort((left, right) => left.location.localeCompare(right.location) || left.product.localeCompare(right.product))
 
     const movementRows = (periodScoped ? summaryMovements : dashboard.movements)
-      .filter((item) => scopeLocationIds.includes(item.location_id) && isInSummaryPeriod(item.created_at))
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
       .map((item) => ({
         movement_type: item.movement_type,
         location: locationName(item.location_id),
@@ -828,10 +845,11 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     URL.revokeObjectURL(url)
   }
 
-  function downloadPdfReport(scope: 'all' | 'selected' = 'all') {
+  function downloadPdfReport(scope: 'all' | 'selected' = 'all', exportFilter?: ReportExportFilter) {
     const periodScoped = active === 'Ringkasan'
-    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped)
-    const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped, exportFilter)
+    const pdfPeriodLabel = periodScoped ? `${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}` : exportFilter?.periodLabel
+    const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [330.2, 215.9] })
     const pageWidth = document.internal.pageSize.getWidth()
     let cursorY = 18
     const ink = '#111312'
@@ -856,15 +874,15 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     document.setFont('helvetica', 'normal')
     document.setFontSize(9)
     document.text('Faminis Barokah', 36, 24)
-    if (periodScoped) {
+    if (pdfPeriodLabel) {
       document.setFontSize(8)
-      document.text(`${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}`, 36, 30)
+      document.text(`Periode: ${pdfPeriodLabel}`, 36, 30)
     }
     document.setFillColor(coral)
     document.rect(pageWidth - 64, 10, 52, 12, 'FD')
     document.setFont('helvetica', 'bold')
     document.text(new Date().toLocaleDateString('id-ID'), pageWidth - 59, 17.5)
-    cursorY = periodScoped ? 42 : 38
+    cursorY = pdfPeriodLabel ? 42 : 38
 
     const summaryItems = [
       ['Role', report.summary.role, yellow],
@@ -1316,7 +1334,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         {transferAlert && <div className="transfer-alert" role="status"><div><strong>{transferAlert.title}</strong><p>{transferAlert.message}</p></div><button type="button" onClick={() => { setActive('Transfer'); setTransferAlert(null) }}>Buka transfer</button><button className="transfer-alert-close" type="button" aria-label="Tutup notifikasi transfer" onClick={() => setTransferAlert(null)}>×</button></div>}
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={() => downloadPdfReport('all')} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={(exportFilter) => downloadPdfReport('all', exportFilter)} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
           <section className="page-heading"><div><p className="eyebrow">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> Unduh CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> Cetak PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Buat transaksi</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>{summaryPeriodControl}<span className="date-chip">{summaryRangeLabel}</span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
@@ -2029,10 +2047,11 @@ function AccessRestricted({ title, message }: { title: string; message: string }
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">ACCESS CONTROL</p><h1>{title}</h1><p className="subtitle">{message}</p></div></div></section>
 }
 
-function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: DashboardData; profile: Profile; onDownloadCsv: () => void; onDownloadPdf: () => void }) {
+function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: DashboardData; profile: Profile; onDownloadCsv: () => void; onDownloadPdf: (exportFilter: ReportExportFilter) => void }) {
   const isOperationalUser = profile.role !== 'MASTER'
   const canSelectReportLocation = profile.role === 'MASTER' || profile.role === 'OWNER'
   const reportLocations = canSelectReportLocation ? data.locations : data.locations.filter((item) => item.id === profile.location_id)
+  const stockReportLocations = data.locations
   const [location, setLocation] = useState(isOperationalUser ? profile.location_id ?? 'all' : 'all')
   const [reportMode, setReportMode] = useState<'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'>('penjualan')
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
@@ -2056,7 +2075,21 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     periodStart.setTime(new Date(`${reportCustomFrom}T00:00:00`).getTime())
     periodEnd = new Date(`${reportCustomTo}T23:59:59.999`)
   }
-  const isInReportPeriod = (createdAt: string) => !isOperationalUser || (reportPeriod === 'custom' && (!reportCustomFrom || !reportCustomTo) ? false : new Date(createdAt) >= periodStart && new Date(createdAt) <= periodEnd)
+  const isInReportPeriod = (createdAt: string) => reportPeriod === 'custom' && (!reportCustomFrom || !reportCustomTo) ? false : new Date(createdAt) >= periodStart && new Date(createdAt) <= periodEnd
+  const formatReportDate = (date: Date) => date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+  const reportPeriodLabel = reportPeriod === 'custom'
+    ? reportCustomFrom && reportCustomTo
+      ? `Custom: ${formatReportDate(new Date(`${reportCustomFrom}T00:00:00`))} - ${formatReportDate(new Date(`${reportCustomTo}T00:00:00`))}`
+      : 'Custom (tanggal belum lengkap)'
+    : `${{ daily: 'Harian', weekly: 'Mingguan', monthly: 'Bulanan' }[reportPeriod]}: ${formatReportDate(periodStart)}${reportPeriod === 'daily' ? '' : ` - ${formatReportDate(periodEnd)}`}`
+  const hasValidExportPeriod = reportPeriod !== 'custom' || Boolean(reportCustomFrom && reportCustomTo)
+  const reportPdfFilter: ReportExportFilter = {
+    periodLabel: reportPeriodLabel,
+    startTime: hasValidExportPeriod ? periodStart.getTime() : null,
+    endTime: hasValidExportPeriod ? periodEnd.getTime() : null,
+    locationIds: location === 'all' ? data.locations.map((item) => item.id) : [location],
+    hasValidPeriod: hasValidExportPeriod,
+  }
   const paymentMethodLabel = (method: string | null | undefined) => ({ CASH: 'Tunai', QRIS: 'QRIS', TRANSFER: 'Transfer', DEBIT: 'Debit', CREDIT: 'Kredit' }[method ?? ''] ?? 'Tidak diketahui')
   const transactions = data.transactions.filter((item) => (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
@@ -2094,11 +2127,19 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     const matchesMode = reportMode === 'transfer-masuk' ? transfer.destination_location_id === profile.location_id : transfer.source_location_id === profile.location_id
     return matchesLocation && matchesMode && isInReportPeriod(transfer.created_at)
   }).map((transfer) => ({ ...transfer, status: `${transfer.status} · ${transferDetailText(transfer.id)}` }))
-  const stockByProduct = new Map(data.stock.filter((stock) => !scopedLocation || stock.location_id === scopedLocation).map((stock) => [stock.product_id, Number(stock.quantity)]))
-  const modeStock = data.products
+  const stockByLocationAndProduct = new Map(data.stock.map((stock) => [`${stock.location_id}:${stock.product_id}`, Number(stock.quantity)]))
+  const selectedStockLocations = location === 'all'
+    ? stockReportLocations
+    : stockReportLocations.filter((item) => item.id === location)
+  const modeStock = selectedStockLocations.flatMap((stockLocation) => data.products
     .filter((product) => stockCategory === 'all' || (product.sku ?? '').toUpperCase().startsWith(`${stockCategory}-`))
-    .map((product) => ({ product_id: product.id, location_id: scopedLocation ?? '', quantity: stockByProduct.get(product.id) ?? 0, product }))
-  const selectedLocationStock = data.stock.filter((stock) => !scopedLocation || stock.location_id === scopedLocation)
+    .map((product) => ({
+      product_id: product.id,
+      location_id: stockLocation.id,
+      quantity: stockByLocationAndProduct.get(`${stockLocation.id}:${product.id}`) ?? 0,
+      product,
+    })))
+  const selectedLocationStock = data.stock.filter((stock) => location === 'all' || stock.location_id === location)
   const stockSkuCount = data.products.length
   const stockTotalQuantity = selectedLocationStock.reduce((sum, stock) => sum + Number(stock.quantity), 0)
   useEffect(() => {
@@ -2112,18 +2153,17 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     parent.insertBefore(cards, panel)
     return () => cards.remove()
   }, [reportMode, stockSkuCount, stockTotalQuantity])
-  const renderStockLocationFilter = () => reportMode === 'stok' && <label className="report-stock-location-filter"><span>Lokasi stok</span><select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+  const renderStockLocationFilter = () => reportMode === 'stok' && <label className="report-stock-location-filter"><span>Lokasi stok</span><select value={location} onChange={(event) => setLocation(event.target.value)}><option value="all">Semua lokasi</option>{stockReportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
   const renderReportPeriodFilter = () => {
-    if (!isOperationalUser) return null
     if (reportMode === 'stok') return renderStockLocationFilter()
-    return <div className="report-period-filter"><label><span>Periode penjualan</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}</div>
+    return <div className="report-period-filter"><label><span>{isOperationalUser ? 'Periode penjualan' : 'Periode laporan'}</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}</div>
   }
   if (isOperationalUser && reportMode !== 'penjualan') {
     const isStockReport = reportMode === 'stok'
     const title = isStockReport ? 'Laporan stok' : reportMode === 'transfer-masuk' ? 'Transfer masuk' : 'Transfer keluar'
     return <section className="module-page reports-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{title}</h1><p className="subtitle">Data operasional sesuai lokasi Anda.</p></div>{renderReportPeriodFilter()}</div>{renderReportModeTabs()}<div className="panel table-panel"><div className="panel-heading"><div><h2>{isStockReport ? 'Stok per lokasi' : title}</h2><p>{isStockReport ? `${modeStock.length} baris stok` : `${modeTransfers.length} transfer tercatat`}</p></div></div><div className="table-wrap">{isStockReport ? <table><thead><tr><th>Produk</th><th>Lokasi</th><th>Jumlah</th><th>Status</th></tr></thead><tbody>{modeStock.map((stock) => <tr key={`${stock.location_id}:${stock.product_id}`}><td><strong>{productName(stock.product_id)}</strong></td><td>{locationName(stock.location_id)}</td><td>{formatNumber(Number(stock.quantity))}</td><td><span className={Number(stock.quantity) <= 5 ? 'status negative' : 'status positive'}>{Number(stock.quantity) <= 5 ? 'Menipis' : 'Aman'}</span></td></tr>)}</tbody></table> : <table><thead><tr><th>Transfer</th><th>Dari</th><th>Ke</th><th>Status</th><th>Tanggal</th></tr></thead><tbody>{modeTransfers.map((transfer) => <tr key={transfer.id}><td><strong>{transfer.id.replace(/-/g, '').slice(0, 8).toUpperCase()}</strong></td><td>{locationName(transfer.source_location_id)}</td><td>{locationName(transfer.destination_location_id)}</td><td><span className="transfer-badge">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleString('id-ID')}</td></tr>)}</tbody></table>}{(isStockReport ? !modeStock.length : !modeTransfers.length) && <div className="empty-state">Belum ada data untuk mode laporan ini.</div>}</div></div></section>
   }
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{renderReportPeriodFilter()}<label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" onClick={onDownloadCsv}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" onClick={onDownloadPdf}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}<div className="report-cards"><MetricCard label="Omzet" value={formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transaksi" value={formatNumber(transactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div></section>
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{renderReportPeriodFilter()}<label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" onClick={onDownloadCsv}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" onClick={() => onDownloadPdf(reportPdfFilter)}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}<div className="report-cards"><MetricCard label="Omzet" value={formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transaksi" value={formatNumber(transactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div></section>
 }
 
 function PurchasesView({ profile, locations }: { profile: Profile; locations: Array<{ id: string; name: string }> }) {

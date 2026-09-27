@@ -29,6 +29,13 @@ test.describe('operational PWA flows', () => {
     await expect(page.getByRole('heading', { name: 'Transfer keluar' })).toBeVisible()
     await page.getByRole('button', { name: 'Stok' }).click()
     await expect(page.getByRole('heading', { name: 'Laporan stok' })).toBeVisible()
+    const stockLocationFilter = page.getByRole('combobox', { name: 'Lokasi stok' })
+    await expect(stockLocationFilter).toBeEnabled()
+    await stockLocationFilter.selectOption('all')
+    const stockRows = page.locator('.reports-page .table-panel tbody tr')
+    await expect(stockRows.first()).toBeVisible()
+    const visibleLocations = new Set((await stockRows.locator('td:nth-child(2)').allTextContents()).map((name) => name.trim()))
+    expect(visibleLocations.size).toBeGreaterThan(1)
   })
 
   test('opens the floating cart without navigating the page', async ({ page }) => {

@@ -93,7 +93,7 @@ where received_quantity is not null
 
 -- Run the following authenticated API scenarios manually in staging:
 -- 1. MASTER/OWNER/WAREHOUSE/LIVE/RUKO login and logout.
--- 2. RUKO-3 reads only its own location; cross-location read must be denied.
+-- 2. RUKO-3 reads operational records only for its own location; stock report is a read-only all-location exception.
 -- 3. Purchase, sale, adjustment, and transfer RPCs with expected audit rows.
 -- 4. Transfer state machine: DRAFT -> REQUESTED -> APPROVED -> SHIPPED
 --    -> RECEIVED -> COMPLETED, plus rejected/cancelled and invalid transitions.

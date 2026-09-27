@@ -137,11 +137,11 @@ begin
   if assigned_location is null then
     raise exception 'WAREHOUSE_LOCATION_REQUIRED';
   end if;
-  if exists (
+  if not exists (
     select 1 from public.get_stock_report()
     where location_id is distinct from assigned_location
   ) then
-    raise exception 'WAREHOUSE_STOCK_SCOPE_VIOLATION';
+    raise exception 'WAREHOUSE_CROSS_LOCATION_STOCK_REPORT_EMPTY';
   end if;
   if not exists (select 1 from public.get_stock_report() where location_id = assigned_location) then
     raise exception 'WAREHOUSE_STOCK_REPORT_EMPTY';
