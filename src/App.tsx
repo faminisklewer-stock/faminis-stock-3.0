@@ -1731,7 +1731,11 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const canChooseSource = profile.role === 'MASTER' || profile.role === 'OWNER'
   const allowedSources = canChooseSource ? locations : locations.filter((location) => location.id === profile.location_id)
   const products = sourceStocksLocationId === source
-    ? allTransferProducts.filter((product) => sourceStocks.some((stock) => stock.product_id === product.id && Number(stock.quantity) > 0))
+    ? allTransferProducts.flatMap((product) => {
+      const stock = sourceStocks.find((item) => item.product_id === product.id)
+      const quantity = Number(stock?.quantity ?? 0)
+      return quantity > 0 ? [{ ...product, name: `${product.name} (Stok: ${quantity} ${product.unit ?? 'unit'})` }] : []
+    })
     : []
 
   async function sendTransferPush(transferId: string, status: string) {
