@@ -76,7 +76,7 @@ function getInitialActiveMenu(profile: Profile) {
   const availableMenus = profile.role === 'MASTER'
     ? [...masterNavItems.map((item) => item.label), 'Pelanggan', 'Akses tim', 'Pengaturan']
     : profile.role === 'OWNER'
-      ? ['Laporan']
+      ? ['Laporan', 'Transfer']
       : operationalNavItems.map((item) => item.label)
   try {
     const savedMenu = window.localStorage.getItem(`faminis:last-menu:${profile.id}`)
@@ -302,7 +302,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const summaryPeriodRange = getSummaryPeriodRange(summaryPeriod)
   const summaryPeriodStart = summaryPeriodRange.start.toISOString()
   const summaryPeriodEnd = summaryPeriodRange.end.toISOString()
-  const visibleNavItems = isMasterUser ? masterNavItems : profile.role === 'OWNER' ? [{ label: 'Laporan', icon: Grid2X2 }] : operationalNavItems
+  const visibleNavItems = isMasterUser ? masterNavItems : profile.role === 'OWNER' ? [{ label: 'Laporan', icon: Grid2X2 }, { label: 'Transfer', icon: Truck }] : operationalNavItems
   const mobilePrimaryItems = visibleNavItems.slice(0, isMasterUser ? 4 : visibleNavItems.length)
   const mobileMoreItems = isMasterUser
     ? [...visibleNavItems.slice(4), { label: 'Pelanggan', icon: Users }, { label: 'Akses tim', icon: UserRound }, { label: 'Pengaturan', icon: Settings }]
@@ -1725,7 +1725,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const [transfers, setTransfers] = useState<TransferRecord[]>([])
   const [transferItems, setTransferItems] = useState<TransferItemRecord[]>([])
   const [allTransferProducts, setAllTransferProducts] = useState<ProductRecord[]>([])
-  const isLocationUser = profile.role !== 'MASTER'
+  const isLocationUser = profile.role !== 'MASTER' && profile.role !== 'OWNER'
   const isOperationalUser = true
   const [transferTab, setTransferTab] = useState<'incoming' | 'outgoing'>('outgoing')
   const [transferPeriod, setTransferPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
@@ -1903,9 +1903,9 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
       if (transfer.status === 'APPROVED' && canActAsSource) return 'SHIPPED'
       return null
     }
-    if (transfer.status === 'REQUESTED' && canActAsDestination && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE')) return 'APPROVED'
+    if (transfer.status === 'REQUESTED' && canActAsDestination) return 'APPROVED'
     if (transfer.status === 'SHIPPED' && canActAsDestination) return 'RECEIVED'
-    if (transfer.status === 'RECEIVED' && canActAsDestination && (profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE' || isLocationUser)) return 'COMPLETED'
+    if (transfer.status === 'RECEIVED' && canActAsDestination) return 'COMPLETED'
     return null
   }
   async function updateDraftTransfer(transfer: TransferRecord) {
@@ -1947,7 +1947,6 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
   const startDraftEdit = (transfer: TransferRecord) => {
     const item = transferItems.find((entry) => entry.transfer_id === transfer.id)
     const product = item ? allTransferProducts.find((candidate) => candidate.id === item.product_id) ?? products.find((candidate) => candidate.id === item.product_id) : undefined
-    setSource(transfer.source_location_id)
     setEditingTransferId(transfer.id)
     setDraftEditor({
       productId: item?.product_id ?? product?.id ?? '',
@@ -1958,15 +1957,15 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
 
   const canManageDraft = (transfer: TransferRecord) => {
     if (transfer.status !== 'DRAFT') return false
-    return profile.id === transfer.requested_by || profile.location_id === transfer.source_location_id || profile.role === 'MASTER' || profile.role === 'OWNER' || profile.role === 'WAREHOUSE'
+    return !isLocationUser || profile.location_id === transfer.destination_location_id
   }
 
   const renderDraftControls = (transfer: TransferRecord) => {
-    if (transferTab !== 'outgoing') return <span className="muted-text">-</span>
+    if (transferTab !== 'incoming') return <span className="muted-text">-</span>
     if (transfer.status !== 'DRAFT') return <span className="muted-text">-</span>
     if (!canManageDraft(transfer)) return <span className="muted-text">-</span>
     if (editingTransferId === transfer.id) {
-      return <div style={{ display: 'grid', gap: 8, minWidth: 190 }}><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Produk<select value={draftEditor.productId} onChange={(event) => setDraftEditor((current) => ({ ...current, productId: event.target.value }))}>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Qty<input type="number" min="1" value={draftEditor.quantity} onChange={(event) => setDraftEditor((current) => ({ ...current, quantity: event.target.value }))} /></label><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Catatan<input value={draftEditor.note} onChange={(event) => setDraftEditor((current) => ({ ...current, note: event.target.value }))} placeholder="Opsional" /></label><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="text-button" type="button" disabled={saving} onClick={() => void updateDraftTransfer(transfer)}>Simpan</button><button className="text-button" type="button" disabled={saving} onClick={() => setEditingTransferId(null)}>Batal</button></div></div>
+      return <div style={{ display: 'grid', gap: 8, minWidth: 190 }}><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Produk<select value={draftEditor.productId} onChange={(event) => setDraftEditor((current) => ({ ...current, productId: event.target.value }))}>{allTransferProducts.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Qty<input type="number" min="1" value={draftEditor.quantity} onChange={(event) => setDraftEditor((current) => ({ ...current, quantity: event.target.value }))} /></label><label style={{ display: 'grid', gap: 5, fontSize: 10, color: '#7f736b', fontWeight: 600 }}>Catatan<input value={draftEditor.note} onChange={(event) => setDraftEditor((current) => ({ ...current, note: event.target.value }))} placeholder="Opsional" /></label><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="text-button" type="button" disabled={saving} onClick={() => void updateDraftTransfer(transfer)}>Simpan</button><button className="text-button" type="button" disabled={saving} onClick={() => setEditingTransferId(null)}>Batal</button></div></div>
     }
     return <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button className="text-button" type="button" disabled={saving} onClick={() => startDraftEdit(transfer)}>Edit</button><button className="text-button" type="button" disabled={saving} onClick={() => void deleteDraftTransfer(transfer)}>Hapus</button></div>
   }
@@ -2018,7 +2017,7 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     ? transfers.filter((transfer) => {
         const isIncoming = transfer.destination_location_id === profile.location_id
         const isOutgoing = transfer.source_location_id === profile.location_id
-        const canReceiveIncoming = isIncoming && transfer.status !== 'DRAFT'
+        const canReceiveIncoming = isIncoming
         return transferTab === 'incoming' ? canReceiveIncoming : isOutgoing
       })
     : transfers).filter((transfer) => isInSelectedPeriod(transfer.created_at))
