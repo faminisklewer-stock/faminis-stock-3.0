@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { ClipboardPenLine, MapPin, PackagePlus, Plus, ScrollText, Tags } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../lib/supabase'
-import { filterApprovedProducts } from '../lib/catalog'
+import { filterApprovedProducts, getApprovedCategoryList, getProductCategoryId } from '../lib/catalog'
 import type { CategoryRecord, ProductRecord } from '../lib/catalog'
 import '../App.css'
 
@@ -101,9 +101,11 @@ export function MasterOpeningStocksView() {
   const client = supabase
   const [locations, setLocations] = useState<LocationRecord[]>([])
   const [products, setProducts] = useState<ProductRecord[]>([])
+  const [categories, setCategories] = useState<CategoryRecord[]>([])
   const [openingStocks, setOpeningStocks] = useState<StockOption[]>([])
   const [quantities, setQuantities] = useState<Record<string, string>>({})
   const [locationId, setLocationId] = useState('')
+  const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [savingProductId, setSavingProductId] = useState('')
   const [loading, setLoading] = useState(Boolean(client))
   const [message, setMessage] = useState('')
@@ -114,12 +116,16 @@ export function MasterOpeningStocksView() {
     void Promise.all([
       client.from('locations').select('id, code, name, kind, active').eq('active', true).order('name'),
       client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
-    ]).then(([locationResult, productResult]) => {
-      if (locationResult.error || productResult.error) setError('Lokasi atau produk tidak dapat dimuat.')
+      client.from('categories').select('id, name, active').eq('active', true).order('name'),
+    ]).then(([locationResult, productResult, categoryResult]) => {
+      if (locationResult.error || productResult.error || categoryResult.error) setError('Lokasi, produk, atau kategori tidak dapat dimuat.')
       else {
         const activeLocations = (locationResult.data ?? []) as LocationRecord[]
+        const activeCategories = getApprovedCategoryList((categoryResult.data ?? []) as CategoryRecord[])
         setLocations(activeLocations)
         setProducts(filterApprovedProducts((productResult.data ?? []) as ProductRecord[]))
+        setCategories(activeCategories)
+        setSelectedCategoryId((current) => current === 'all' || activeCategories.some((category) => category.id === current) ? current : 'all')
         setLocationId((current) => current || activeLocations[0]?.id || '')
       }
       setLoading(false)
@@ -152,12 +158,15 @@ export function MasterOpeningStocksView() {
     setMessage('Stok awal berhasil disimpan.')
   }
 
+  const visibleProducts = products.filter((product) => selectedCategoryId === 'all' || getProductCategoryId(product, categories) === selectedCategoryId)
+
   return <AdminPage eyebrow="INVENTORY SETUP" title="Stok Awal" subtitle="Tetapkan jumlah awal produk untuk setiap lokasi. Harga modal tidak dicatat.">
     <div className="panel table-panel">
       <div className="panel-heading"><div><h2>Saldo awal per lokasi</h2><p>Setiap produk hanya dapat ditetapkan satu kali.</p></div><PackagePlus size={20} /></div>
       <label className="opening-stock-location">Lokasi<select value={locationId} onChange={(event) => { setLocationId(event.target.value); setMessage(''); setError('') }}><option value="">Pilih lokasi</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
       {error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}
-      {loading ? <div className="empty-state">Memuat produk dan lokasi...</div> : !products.length ? <div className="empty-state">Belum ada produk aktif.</div> : !locationId ? <div className="empty-state">Belum ada lokasi aktif.</div> : <div className="table-wrap"><table><thead><tr><th>Produk</th><th>Stok awal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{products.map((product) => {
+      <div className="category-pills compact" aria-label="Filter kategori stok awal">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>
+      {loading ? <div className="empty-state">Memuat produk, kategori, dan lokasi...</div> : !products.length ? <div className="empty-state">Belum ada produk aktif.</div> : !locationId ? <div className="empty-state">Belum ada lokasi aktif.</div> : !visibleProducts.length ? <div className="empty-state">Tidak ada produk pada kategori ini.</div> : <div className="table-wrap"><table><thead><tr><th>Produk</th><th>Stok awal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{visibleProducts.map((product) => {
         const openingStock = openingStocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
         return <tr key={product.id}><td><strong>{product.name}</strong><span className="table-subline">{product.sku}{product.variant ? ` · ${product.variant}` : ''}</span></td><td>{openingStock ? `${openingStock.quantity} ${product.unit}` : <input className="opening-stock-quantity" aria-label={`Stok awal ${product.name}`} type="number" min="0" step="1" value={quantities[product.id] ?? '0'} onChange={(event) => setQuantities((current) => ({ ...current, [product.id]: event.target.value }))} />}</td><td><span className={openingStock ? 'status positive' : 'status-off'}>{openingStock ? 'Sudah diatur' : 'Belum diatur'}</span></td><td><button className="text-button" type="button" disabled={Boolean(openingStock) || savingProductId === product.id} onClick={() => void save(product.id)}>{savingProductId === product.id ? 'Menyimpan...' : openingStock ? 'Tersimpan' : 'Simpan'}</button></td></tr>
       })}</tbody></table></div>}
