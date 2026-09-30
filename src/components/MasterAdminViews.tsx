@@ -148,14 +148,17 @@ export function MasterOpeningStocksView() {
     const quantity = Number(quantities[productId] ?? 0)
     if (!Number.isInteger(quantity) || quantity < 0) { setError('Jumlah stok harus berupa bilangan bulat nol atau lebih.'); return }
     setError(''); setMessage(''); setSavingProductId(productId)
-    const { error: saveError } = await client.rpc('set_opening_stock', { p_product_id: productId, p_location_id: locationId, p_quantity: quantity })
+    const existingStock = openingStocks.find((stock) => stock.product_id === productId && stock.location_id === locationId)
+    const { error: saveError } = await client.rpc(existingStock ? 'update_opening_stock' : 'set_opening_stock', { p_product_id: productId, p_location_id: locationId, p_quantity: quantity })
     setSavingProductId('')
     if (saveError) {
-      setError(saveError.message.includes('OPENING_STOCK_ALREADY_SET') ? 'Stok awal produk ini sudah pernah ditetapkan.' : 'Stok awal tidak dapat disimpan.')
+      setError(saveError.message.includes('STOCK_ALREADY_USED') ? 'Stok awal tidak dapat diubah setelah stok digunakan.' : 'Stok awal tidak dapat disimpan.')
       return
     }
-    setOpeningStocks((current) => [...current, { product_id: productId, location_id: locationId, quantity }])
-    setMessage('Stok awal berhasil disimpan.')
+    setOpeningStocks((current) => existingStock
+      ? current.map((stock) => stock.product_id === productId && stock.location_id === locationId ? { ...stock, quantity } : stock)
+      : [...current, { product_id: productId, location_id: locationId, quantity }])
+    setMessage(existingStock ? 'Stok awal berhasil diubah.' : 'Stok awal berhasil disimpan.')
   }
 
   const visibleProducts = products.filter((product) => selectedCategoryId === 'all' || getProductCategoryId(product, categories) === selectedCategoryId)
@@ -168,7 +171,7 @@ export function MasterOpeningStocksView() {
       <div className="category-pills compact" aria-label="Filter kategori stok awal">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>
       {loading ? <div className="empty-state">Memuat produk, kategori, dan lokasi...</div> : !products.length ? <div className="empty-state">Belum ada produk aktif.</div> : !locationId ? <div className="empty-state">Belum ada lokasi aktif.</div> : !visibleProducts.length ? <div className="empty-state">Tidak ada produk pada kategori ini.</div> : <div className="table-wrap"><table><thead><tr><th>Produk</th><th>Stok awal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{visibleProducts.map((product) => {
         const openingStock = openingStocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
-        return <tr key={product.id}><td><strong>{product.name}</strong><span className="table-subline">{product.sku}{product.variant ? ` · ${product.variant}` : ''}</span></td><td>{openingStock ? `${openingStock.quantity} ${product.unit}` : <input className="opening-stock-quantity" aria-label={`Stok awal ${product.name}`} type="number" min="0" step="1" value={quantities[product.id] ?? '0'} onChange={(event) => setQuantities((current) => ({ ...current, [product.id]: event.target.value }))} />}</td><td><span className={openingStock ? 'status positive' : 'status-off'}>{openingStock ? 'Sudah diatur' : 'Belum diatur'}</span></td><td><button className="text-button" type="button" disabled={Boolean(openingStock) || savingProductId === product.id} onClick={() => void save(product.id)}>{savingProductId === product.id ? 'Menyimpan...' : openingStock ? 'Tersimpan' : 'Simpan'}</button></td></tr>
+        return <tr key={product.id}><td><strong>{product.name}</strong><span className="table-subline">{product.sku}{product.variant ? ` · ${product.variant}` : ''}</span></td><td><input className="opening-stock-quantity" aria-label={`Stok awal ${product.name}`} type="number" min="0" step="1" value={quantities[product.id] ?? String(openingStock?.quantity ?? 0)} onChange={(event) => setQuantities((current) => ({ ...current, [product.id]: event.target.value }))} /> <span className="table-subline">{product.unit}</span></td><td><span className={openingStock ? 'status positive' : 'status-off'}>{openingStock ? 'Sudah diatur' : 'Belum diatur'}</span></td><td><button className="text-button" type="button" disabled={savingProductId === product.id} onClick={() => void save(product.id)}>{savingProductId === product.id ? 'Menyimpan...' : openingStock ? 'Ubah' : 'Simpan'}</button></td></tr>
       })}</tbody></table></div>}
     </div>
   </AdminPage>
