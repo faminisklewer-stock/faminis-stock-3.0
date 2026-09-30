@@ -107,6 +107,7 @@ export function MasterOpeningStocksView() {
   const [locationId, setLocationId] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('all')
   const [savingProductId, setSavingProductId] = useState('')
+  const [editingProductId, setEditingProductId] = useState('')
   const [loading, setLoading] = useState(Boolean(client))
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -158,6 +159,7 @@ export function MasterOpeningStocksView() {
     setOpeningStocks((current) => existingStock
       ? current.map((stock) => stock.product_id === productId && stock.location_id === locationId ? { ...stock, quantity } : stock)
       : [...current, { product_id: productId, location_id: locationId, quantity }])
+    setEditingProductId('')
     setMessage(existingStock ? 'Stok awal berhasil diubah.' : 'Stok awal berhasil disimpan.')
   }
 
@@ -171,7 +173,8 @@ export function MasterOpeningStocksView() {
       <div className="category-pills compact" aria-label="Filter kategori stok awal">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>
       {loading ? <div className="empty-state">Memuat produk, kategori, dan lokasi...</div> : !products.length ? <div className="empty-state">Belum ada produk aktif.</div> : !locationId ? <div className="empty-state">Belum ada lokasi aktif.</div> : !visibleProducts.length ? <div className="empty-state">Tidak ada produk pada kategori ini.</div> : <div className="table-wrap"><table><thead><tr><th>Produk</th><th>Stok awal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{visibleProducts.map((product) => {
         const openingStock = openingStocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
-        return <tr key={product.id}><td><strong>{product.name}</strong><span className="table-subline">{product.sku}{product.variant ? ` · ${product.variant}` : ''}</span></td><td><input className="opening-stock-quantity" aria-label={`Stok awal ${product.name}`} type="number" min="0" step="1" value={quantities[product.id] ?? String(openingStock?.quantity ?? 0)} onChange={(event) => setQuantities((current) => ({ ...current, [product.id]: event.target.value }))} /> <span className="table-subline">{product.unit}</span></td><td><span className={openingStock ? 'status positive' : 'status-off'}>{openingStock ? 'Sudah diatur' : 'Belum diatur'}</span></td><td><button className="text-button" type="button" disabled={savingProductId === product.id} onClick={() => void save(product.id)}>{savingProductId === product.id ? 'Menyimpan...' : openingStock ? 'Ubah' : 'Simpan'}</button></td></tr>
+        const isEditing = editingProductId === product.id
+        return <tr key={product.id}><td><strong>{product.name}</strong><span className="table-subline">{product.sku}{product.variant ? ` · ${product.variant}` : ''}</span></td><td>{openingStock && !isEditing ? <><strong>{openingStock.quantity}</strong> <span className="table-subline">{product.unit}</span></> : <><input className="opening-stock-quantity" aria-label={`Stok awal ${product.name}`} type="number" min="0" step="1" value={quantities[product.id] ?? String(openingStock?.quantity ?? 0)} onChange={(event) => setQuantities((current) => ({ ...current, [product.id]: event.target.value }))} /> <span className="table-subline">{product.unit}</span></>}</td><td><span className={openingStock ? 'status positive' : 'status-off'}>{openingStock ? 'Sudah diatur' : 'Belum diatur'}</span></td><td>{openingStock && isEditing ? <><button className="text-button" type="button" disabled={savingProductId === product.id} onClick={() => void save(product.id)}>{savingProductId === product.id ? 'Menyimpan...' : 'Simpan'}</button><button className="text-button" type="button" disabled={savingProductId === product.id} onClick={() => { setQuantities((current) => ({ ...current, [product.id]: String(openingStock.quantity) })); setEditingProductId('') }}>Batal</button></> : <button className="text-button" type="button" disabled={savingProductId === product.id} onClick={() => { if (openingStock) { setQuantities((current) => ({ ...current, [product.id]: String(openingStock.quantity) })); setEditingProductId(product.id) } else void save(product.id) }}>{savingProductId === product.id ? 'Menyimpan...' : openingStock ? 'Edit' : 'Simpan'}</button>}</td></tr>
       })}</tbody></table></div>}
     </div>
   </AdminPage>
