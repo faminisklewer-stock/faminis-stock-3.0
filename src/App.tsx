@@ -33,6 +33,7 @@ import { supabase } from './lib/supabase'
 import type { Profile } from './lib/supabase'
 import {
   filterApprovedProducts,
+  fetchAllPages,
   getApprovedCategoryList,
   getCategoryPrefix,
   getProductCategoryId,
@@ -1436,26 +1437,30 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
 
   useEffect(() => {
     if (!client || !locationId) return
+    const activeClient = client
     let mounted = true
-    setLoading(true)
-    void client.from('products').select('id, sku, name, unit, category_id').eq('active', true).order('name').limit(100).then(async ({ data, error: productError }) => {
+    async function loadProducts() {
+      setLoading(true)
+      const [productResult, stockResult] = await Promise.all([
+        fetchAllPages((from, to) => activeClient.from('products').select('id, sku, name, unit, category_id').eq('active', true).order('name').order('id').range(from, to)),
+        fetchAllPages((from, to) => activeClient.from('stocks').select('product_id, quantity').eq('location_id', locationId).order('product_id').range(from, to)),
+      ])
       if (!mounted) return
-      if (productError) { setError('Produk tidak dapat dimuat dari Supabase.'); setLoading(false); return }
-      const productIds = (data ?? []).map((product) => product.id)
-      const { data: stocks, error: stockError } = productIds.length ? await client.from('stocks').select('product_id, quantity').eq('location_id', locationId).in('product_id', productIds) : { data: [], error: null }
-      if (!mounted) return
-      if (stockError) setError('Stok tidak dapat dimuat dari Supabase.')
-      const stockMap = new Map((stocks ?? []).map((stock) => [stock.product_id, stock.quantity]))
+      if (productResult.error) { setError('Produk tidak dapat dimuat dari Supabase.'); setLoading(false); return }
+      if (stockResult.error) setError('Stok tidak dapat dimuat dari Supabase.')
+      const stockMap = new Map((stockResult.data ?? []).map((stock) => [stock.product_id, stock.quantity]))
       const categoryNameMap = new Map((categories ?? []).map((category) => [category.id, category.name]))
-      const approvedProducts = filterApprovedProducts(data ?? [])
+      const approvedProducts = filterApprovedProducts(productResult.data ?? [])
       setProducts(approvedProducts.map((product) => {
         const resolvedCategoryId = getProductCategoryId(product, categories ?? [])
         const resolvedCategoryName = resolvedCategoryId ? categoryNameMap.get(resolvedCategoryId) ?? null : null
         return { ...product, category_id: resolvedCategoryId, stock: stockMap.get(product.id) ?? 0, category_name: resolvedCategoryName }
       }))
       setLoading(false)
-    })
-    return () => { mounted = false }
+    }
+    void loadProducts()
+    window.addEventListener('faminis:data-changed', loadProducts)
+    return () => { mounted = false; window.removeEventListener('faminis:data-changed', loadProducts) }
   }, [categories, client, locationId])
 
   const total = cart.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
@@ -1693,13 +1698,15 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
   const client = supabase
   const canAdjust = profile.role === 'MASTER' || profile.role === 'WAREHOUSE'
   const allowedLocations = profile.role === 'MASTER' || profile.role === 'OWNER' ? locations : locations.filter((location) => location.id === profile.location_id)
+  const showAllLocations = profile.role === 'MASTER' && locationId === 'all'
 
   const loadStock = useCallback(async () => {
     if (!client || !locationId) return
     setLoading(true)
+    const stockQuery = client.from('stocks').select('product_id, location_id, quantity').order('product_id').order('location_id')
     const [productResult, stockResult] = await Promise.all([
-      client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
-      client.from('stocks').select('product_id, location_id, quantity').eq('location_id', locationId),
+      fetchAllPages((from, to) => client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name').order('id').range(from, to)),
+      fetchAllPages((from, to) => (showAllLocations ? stockQuery : stockQuery.eq('location_id', locationId)).range(from, to)),
     ])
     if (productResult.error || stockResult.error) setError('Stok tidak dapat dimuat dari Supabase.')
     else {
@@ -1707,7 +1714,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
       setStocks((stockResult.data ?? []) as StockRecord[])
     }
     setLoading(false)
-  }, [client, locationId])
+  }, [client, locationId, showAllLocations])
 
   useEffect(() => {
     if (!client) return
@@ -1739,7 +1746,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
   }
 
   async function resetLocationStock() {
-    if (!client || !locationId || !canAdjust) return
+    if (!client || !locationId || locationId === 'all' || !canAdjust) return
     setResetting(true); setError(''); setMessage('')
     const { error: resetError } = await client.rpc('reset_location_stock', { p_location_id: locationId })
     setResetting(false)
@@ -1749,16 +1756,17 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
-  const rows: StockRow[] = products
-    .map((product) => {
-      const stockValue = stocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
+  const selectedLocationIds = showAllLocations ? allowedLocations.map((location) => location.id) : [locationId]
+  const rows: StockRow[] = selectedLocationIds
+    .flatMap((selectedLocationId) => products.map((product) => {
+      const stockValue = stocks.find((stock) => stock.product_id === product.id && stock.location_id === selectedLocationId)
       return {
         product_id: product.id,
-        location_id: locationId,
+        location_id: selectedLocationId,
         quantity: Number(stockValue?.quantity ?? 0),
         product,
       }
-    })
+    }))
     .filter((row) => {
       const productCategoryId = getProductCategoryId(row.product, categories)
       const matchesCategory = selectedCategoryId === 'all' || productCategoryId === selectedCategoryId
@@ -1767,9 +1775,18 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     })
 
   const totalStock = rows.reduce((sum, row) => sum + row.quantity, 0)
+  const totalProductCount = new Set(rows.map((row) => row.product_id)).size
   const lowStockCount = rows.filter((row) => row.quantity <= 5).length
 
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={allowedLocations.length < 2}>{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div><div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div>{canAdjust && <button className="button button-secondary" type="button" disabled={resetting} onClick={() => { void resetLocationStock() }}>{resetting ? 'Mereset...' : 'Reset stok ke 0'}</button>}</div><div className="stock-summary" aria-label="Ringkasan stok"><div className="stock-summary-card"><span>Total item</span><strong>{formatNumber(rows.length)}</strong><small>SKU aktif</small></div><div className="stock-summary-card"><span>Saldo total</span><strong>{formatNumber(totalStock)}</strong><small>Unit tercatat</small></div><div className="stock-summary-card warning"><span>Low stock</span><strong>{formatNumber(lowStockCount)}</strong><small>Perlu perhatian</small></div></div><div className="category-pills compact" aria-label="Filter kategori stok">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>{error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}<div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th><th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={row.product_id}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td><td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">Belum ada saldo stok di lokasi ini.</div>}</div>}</div>{selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}</section>
+  return <section className="module-page">
+    <div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={profile.role !== 'MASTER' && allowedLocations.length < 2}>{profile.role === 'MASTER' && <option value="all">Semua lokasi</option>}{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div>
+    <div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div>{canAdjust && <button className="button button-secondary" type="button" disabled={resetting || locationId === 'all'} title={locationId === 'all' ? 'Pilih satu lokasi untuk mereset stok.' : undefined} onClick={() => { void resetLocationStock() }}>{resetting ? 'Mereset...' : 'Reset stok ke 0'}</button>}</div>
+    <div className="stock-summary" aria-label="Ringkasan stok"><div className="stock-summary-card"><span>Total item</span><strong>{formatNumber(totalProductCount)}</strong><small>SKU aktif</small></div><div className="stock-summary-card"><span>Saldo total</span><strong>{formatNumber(totalStock)}</strong><small>Unit tercatat</small></div><div className="stock-summary-card warning"><span>Low stock</span><strong>{formatNumber(lowStockCount)}</strong><small>Perlu perhatian</small></div></div>
+    <div className="category-pills compact" aria-label="Filter kategori stok">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>
+    {error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}
+    <div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th>{showAllLocations && <th>Lokasi</th>}<th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.location_id}:${row.product_id}`}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td>{showAllLocations && <td>{allowedLocations.find((location) => location.id === row.location_id)?.name}</td>}<td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">{showAllLocations ? 'Belum ada saldo stok di lokasi aktif.' : 'Belum ada saldo stok di lokasi ini.'}</div>}</div>}</div>
+    {selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · {allowedLocations.find((location) => location.id === selected.location_id)?.name} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}
+  </section>
 }
 
 function TransfersView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {

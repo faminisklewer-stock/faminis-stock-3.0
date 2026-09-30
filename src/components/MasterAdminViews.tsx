@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 import { ClipboardPenLine, MapPin, PackagePlus, Plus, ScrollText, Tags } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../lib/supabase'
-import { filterApprovedProducts, getApprovedCategoryList, getProductCategoryId } from '../lib/catalog'
+import { fetchAllPages, filterApprovedProducts, getApprovedCategoryList, getProductCategoryId } from '../lib/catalog'
 import type { CategoryRecord, ProductRecord } from '../lib/catalog'
 import '../App.css'
 
@@ -116,7 +116,7 @@ export function MasterOpeningStocksView() {
     if (!client) return
     void Promise.all([
       client.from('locations').select('id, code, name, kind, active').eq('active', true).order('name'),
-      client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
+      fetchAllPages((from, to) => client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name').order('id').range(from, to)),
       client.from('categories').select('id, name, active').eq('active', true).order('name'),
     ]).then(([locationResult, productResult, categoryResult]) => {
       if (locationResult.error || productResult.error || categoryResult.error) setError('Lokasi, produk, atau kategori tidak dapat dimuat.')
@@ -136,7 +136,7 @@ export function MasterOpeningStocksView() {
   useEffect(() => {
     if (!client || !locationId) return
     let mounted = true
-    void client.from('opening_stocks').select('product_id, location_id, quantity').eq('location_id', locationId).then(({ data, error: loadError }) => {
+    void fetchAllPages((from, to) => client.from('opening_stocks').select('product_id, location_id, quantity').eq('location_id', locationId).order('product_id').range(from, to)).then(({ data, error: loadError }) => {
       if (!mounted) return
       if (loadError) setError('Stok awal tidak dapat dimuat.')
       else setOpeningStocks((data ?? []) as StockOption[])
@@ -161,6 +161,7 @@ export function MasterOpeningStocksView() {
       : [...current, { product_id: productId, location_id: locationId, quantity }])
     setEditingProductId('')
     setMessage(existingStock ? 'Stok awal berhasil diubah.' : 'Stok awal berhasil disimpan.')
+    window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
   const visibleProducts = products.filter((product) => selectedCategoryId === 'all' || getProductCategoryId(product, categories) === selectedCategoryId)

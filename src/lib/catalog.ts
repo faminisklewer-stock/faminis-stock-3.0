@@ -8,6 +8,19 @@ export type StockRow = StockRecord & { product?: ProductRecord }
 export type TransferRecord = { id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }
 export type TransferItemRecord = { id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }
 
+export async function fetchAllPages<T>(loadPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>) {
+  const pageSize = 1000
+  const rows: T[] = []
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await loadPage(from, from + pageSize - 1)
+    if (error) return { data: null, error }
+    const page = data ?? []
+    rows.push(...page)
+    if (page.length < pageSize) return { data: rows, error: null }
+  }
+}
+
 const PRODUCT_CATEGORY_PREFIXES: Record<string, string> = {
   Mukena: 'MKN',
   Sarung: 'SRG',
