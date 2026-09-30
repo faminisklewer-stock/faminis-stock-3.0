@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   MapPin,
   Package,
+  PackagePlus,
   Plus,
   Search,
   Settings,
@@ -49,7 +50,7 @@ import type {
   TransferRecord,
 } from './lib/catalog'
 import { translateVisibleUi } from './lib/uiTranslations'
-import { MasterAdjustmentsView, MasterAuditLogsView, MasterCategoriesView, MasterLocationsView } from './components/MasterAdminViews'
+import { MasterAdjustmentsView, MasterAuditLogsView, MasterCategoriesView, MasterLocationsView, MasterOpeningStocksView } from './components/MasterAdminViews'
 
 const masterNavItems: Array<{ label: string; icon: typeof LayoutDashboard; badge?: string }> = [
   { label: 'Ringkasan', icon: LayoutDashboard },
@@ -57,6 +58,7 @@ const masterNavItems: Array<{ label: string; icon: typeof LayoutDashboard; badge
   { label: 'Produk', icon: Package },
   { label: 'Kategori', icon: Tags },
   { label: 'Stok', icon: Boxes },
+  { label: 'Stok Awal', icon: PackagePlus },
   { label: 'Adjustment', icon: ClipboardPenLine },
   { label: 'Transfer', icon: Truck },
   { label: 'Pembelian', icon: ClipboardList },
@@ -76,7 +78,7 @@ function getInitialActiveMenu(profile: Profile) {
   const availableMenus = profile.role === 'MASTER'
     ? [...masterNavItems.map((item) => item.label), 'Pelanggan', 'Akses tim', 'Pengaturan']
     : profile.role === 'OWNER'
-      ? ['Laporan', 'Transfer']
+      ? ['Laporan']
       : operationalNavItems.map((item) => item.label)
   try {
     const savedMenu = window.localStorage.getItem(`faminis:last-menu:${profile.id}`)
@@ -95,7 +97,7 @@ type DashboardData = {
   locations: LocationOption[]
   transfers: Array<{ id: string; source_location_id: string; destination_location_id: string; status: string; notes: string | null; created_at: string; requested_by: string | null }>
   transferItems: Array<{ id: string; transfer_id: string; product_id: string; shipped_quantity: number; received_quantity: number | null; discrepancy_reason: string | null }>
-  purchases: Array<{ id: string; supplier_name: string | null; location_id: string; created_at: string; created_by: string | null }>
+  purchases: Array<{ id: string; supplier_name: string | null; location_id: string; received_at: string; created_by: string | null }>
   purchaseItems: Array<{ id: string; receipt_id: string; product_id: string; quantity: number; purchase_cost: number | null }>
   lowStockThreshold: number
 }
@@ -302,7 +304,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   const summaryPeriodRange = getSummaryPeriodRange(summaryPeriod)
   const summaryPeriodStart = summaryPeriodRange.start.toISOString()
   const summaryPeriodEnd = summaryPeriodRange.end.toISOString()
-  const visibleNavItems = isMasterUser ? masterNavItems : profile.role === 'OWNER' ? [{ label: 'Laporan', icon: Grid2X2 }, { label: 'Transfer', icon: Truck }] : operationalNavItems
+  const visibleNavItems = isMasterUser ? masterNavItems : profile.role === 'OWNER' ? [{ label: 'Laporan', icon: Grid2X2 }] : operationalNavItems
   const mobilePrimaryItems = visibleNavItems.slice(0, isMasterUser ? 4 : visibleNavItems.length)
   const mobileMoreItems = isMasterUser
     ? [...visibleNavItems.slice(4), { label: 'Pelanggan', icon: Users }, { label: 'Akses tim', icon: UserRound }, { label: 'Pengaturan', icon: Settings }]
@@ -451,7 +453,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         client.from('locations').select('id, name, kind').eq('active', true).order('name'),
         client.from('stock_transfers').select('id, source_location_id, destination_location_id, status, notes, created_at, requested_by').order('created_at', { ascending: false }).limit(100),
         client.from('stock_transfer_items').select('id, transfer_id, product_id, shipped_quantity, received_quantity, discrepancy_reason'),
-        client.from('purchase_receipts').select('id, supplier_name, location_id, created_at, created_by').order('created_at', { ascending: false }).limit(100),
+        client.from('purchase_receipts').select('id, supplier_name, location_id, received_at, created_by').order('received_at', { ascending: false }).limit(100),
         client.from('purchase_receipt_items').select('id, receipt_id, product_id, quantity, purchase_cost'),
         client.from('settings').select('value').eq('key', 'low_stock_threshold').maybeSingle(),
       ])
@@ -732,7 +734,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       })
 
     const purchaseRows = dashboard.purchases
-      .filter((item) => scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
+      .filter((item) => scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.received_at))
       .flatMap((item) => {
         const details = dashboard.purchaseItems.filter((entry) => entry.receipt_id === item.id)
         if (!details.length) {
@@ -741,7 +743,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
             location: locationName(item.location_id),
             product_name: 'Produk',
             quantity: 0,
-            created_at: new Date(item.created_at).toISOString(),
+            created_at: new Date(item.received_at).toISOString(),
           }]
         }
         return details.map((entry) => ({
@@ -749,7 +751,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
           location: locationName(item.location_id),
           product_name: productName(entry.product_id),
           quantity: Number(entry.quantity),
-          created_at: new Date(item.created_at).toISOString(),
+          created_at: new Date(item.received_at).toISOString(),
         }))
       })
 
@@ -1334,7 +1336,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         {transferAlert && <div className="transfer-alert" role="status"><div><strong>{transferAlert.title}</strong><p>{transferAlert.message}</p></div><button type="button" onClick={() => { setActive('Transfer'); setTransferAlert(null) }}>Buka transfer</button><button className="transfer-alert-close" type="button" aria-label="Tutup notifikasi transfer" onClick={() => setTransferAlert(null)}>×</button></div>}
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={(exportFilter) => downloadPdfReport('all', exportFilter)} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Stok Awal' ? <MasterOpeningStocksView /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={(exportFilter) => downloadPdfReport('all', exportFilter)} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
           <section className="page-heading"><div><p className="eyebrow">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> Unduh CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> Cetak PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Buat transaksi</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></label>{summaryPeriodControl}<span className="date-chip">{summaryRangeLabel}</span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}

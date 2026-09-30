@@ -157,6 +157,10 @@ input::placeholder, textarea::placeholder { color: #7b7068; opacity: 1; }
 .module-page table tbody td { padding: 12px 12px; border-top: 1px solid #f3ece5; color: #544d48; font-size: 12px; }
 .module-page table tbody tr:hover { background: #fffaf6; }
 .module-page table select { min-width: 120px; }
+.opening-stock-location { display: grid; width: min(100%, 360px); gap: 6px; margin: 0 0 14px; color: #7f736b; font-size: 11px; font-weight: 600; }
+.opening-stock-location select, .opening-stock-quantity { min-height: 36px; padding: 8px 10px; border: 1px solid #e4dcd4; border-radius: 7px; background: #fff; color: #574940; font: inherit; font-size: 12px; }
+.opening-stock-quantity { width: 112px; }
+.opening-stock-location select:focus, .opening-stock-quantity:focus { border-color: #9c603c; outline: 0; box-shadow: 0 0 0 3px #f4e7dd; }
 .module-page .table-wrap .toggle-row { border-color: #f0e5dc; background: #faf7f4; }
 .module-page .text-button { border: none; border-radius: 8px; padding: 6px 10px; background: #f3e8df; color: #6b4738; font-size: 11px; font-weight: 700; }
 .module-page .text-button:hover { background: #ecddd2; }

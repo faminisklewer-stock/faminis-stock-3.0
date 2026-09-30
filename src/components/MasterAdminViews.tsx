@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { ClipboardPenLine, MapPin, Plus, ScrollText, Tags } from 'lucide-react'
+import { ClipboardPenLine, MapPin, PackagePlus, Plus, ScrollText, Tags } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../lib/supabase'
 import { filterApprovedProducts } from '../lib/catalog'
@@ -95,4 +95,72 @@ export function MasterAdjustmentsView({ profile }: { profile: Profile }) {
     else { setPhysical(''); setReason(''); setMessage('Penyesuaian stok berhasil dicatat.'); setStocks((current) => current.map((stock) => stock.product_id === productId ? { ...stock, quantity } : stock)) }
   }
   return <AdminPage eyebrow="INVENTORY CONTROL" title="Adjustment / Stock Opname" subtitle={`Koreksi stok melalui RPC audit untuk ${profile.full_name}.`}><form className="panel operation-form" onSubmit={submit}><div className="panel-heading"><div><h2>Penyesuaian stok</h2><p>Perubahan akan tercatat di stock movement dan audit log.</p></div><ClipboardPenLine size={20} /></div><div className="two-col"><label>Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)}><option value="">Pilih lokasi</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label><label>Produk<select value={productId} onChange={(event) => setProductId(event.target.value)}><option value="">Pilih produk</option>{products.map((product) => <option key={product.id} value={product.id}>{product.sku} - {product.name}</option>)}</select></label></div><div className="two-col"><label>Stok sistem<input value={productId ? String(currentQuantity) : ''} readOnly /></label><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} placeholder="Masukkan jumlah fisik" /></label></div><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Contoh: hasil stock opname" required /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit">Simpan penyesuaian</button></form></AdminPage>
+}
+
+export function MasterOpeningStocksView() {
+  const client = supabase
+  const [locations, setLocations] = useState<LocationRecord[]>([])
+  const [products, setProducts] = useState<ProductRecord[]>([])
+  const [openingStocks, setOpeningStocks] = useState<StockOption[]>([])
+  const [quantities, setQuantities] = useState<Record<string, string>>({})
+  const [locationId, setLocationId] = useState('')
+  const [savingProductId, setSavingProductId] = useState('')
+  const [loading, setLoading] = useState(Boolean(client))
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!client) return
+    void Promise.all([
+      client.from('locations').select('id, code, name, kind, active').eq('active', true).order('name'),
+      client.from('products').select('id, sku, name, unit, variant, active, category_id').eq('active', true).order('name'),
+    ]).then(([locationResult, productResult]) => {
+      if (locationResult.error || productResult.error) setError('Lokasi atau produk tidak dapat dimuat.')
+      else {
+        const activeLocations = (locationResult.data ?? []) as LocationRecord[]
+        setLocations(activeLocations)
+        setProducts(filterApprovedProducts((productResult.data ?? []) as ProductRecord[]))
+        setLocationId((current) => current || activeLocations[0]?.id || '')
+      }
+      setLoading(false)
+    })
+  }, [client])
+
+  useEffect(() => {
+    if (!client || !locationId) return
+    let mounted = true
+    void client.from('opening_stocks').select('product_id, location_id, quantity').eq('location_id', locationId).then(({ data, error: loadError }) => {
+      if (!mounted) return
+      if (loadError) setError('Stok awal tidak dapat dimuat.')
+      else setOpeningStocks((data ?? []) as StockOption[])
+    })
+    return () => { mounted = false }
+  }, [client, locationId])
+
+  async function save(productId: string) {
+    if (!client || !locationId) return
+    const quantity = Number(quantities[productId] ?? 0)
+    if (!Number.isInteger(quantity) || quantity < 0) { setError('Jumlah stok harus berupa bilangan bulat nol atau lebih.'); return }
+    setError(''); setMessage(''); setSavingProductId(productId)
+    const { error: saveError } = await client.rpc('set_opening_stock', { p_product_id: productId, p_location_id: locationId, p_quantity: quantity })
+    setSavingProductId('')
+    if (saveError) {
+      setError(saveError.message.includes('OPENING_STOCK_ALREADY_SET') ? 'Stok awal produk ini sudah pernah ditetapkan.' : 'Stok awal tidak dapat disimpan.')
+      return
+    }
+    setOpeningStocks((current) => [...current, { product_id: productId, location_id: locationId, quantity }])
+    setMessage('Stok awal berhasil disimpan.')
+  }
+
+  return <AdminPage eyebrow="INVENTORY SETUP" title="Stok Awal" subtitle="Tetapkan jumlah awal produk untuk setiap lokasi. Harga modal tidak dicatat.">
+    <div className="panel table-panel">
+      <div className="panel-heading"><div><h2>Saldo awal per lokasi</h2><p>Setiap produk hanya dapat ditetapkan satu kali.</p></div><PackagePlus size={20} /></div>
+      <label className="opening-stock-location">Lokasi<select value={locationId} onChange={(event) => { setLocationId(event.target.value); setMessage(''); setError('') }}><option value="">Pilih lokasi</option>{locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+      {error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}
+      {loading ? <div className="empty-state">Memuat produk dan lokasi...</div> : !products.length ? <div className="empty-state">Belum ada produk aktif.</div> : !locationId ? <div className="empty-state">Belum ada lokasi aktif.</div> : <div className="table-wrap"><table><thead><tr><th>Produk</th><th>Stok awal</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{products.map((product) => {
+        const openingStock = openingStocks.find((stock) => stock.product_id === product.id && stock.location_id === locationId)
+        return <tr key={product.id}><td><strong>{product.name}</strong><span className="table-subline">{product.sku}{product.variant ? ` · ${product.variant}` : ''}</span></td><td>{openingStock ? `${openingStock.quantity} ${product.unit}` : <input className="opening-stock-quantity" aria-label={`Stok awal ${product.name}`} type="number" min="0" step="1" value={quantities[product.id] ?? '0'} onChange={(event) => setQuantities((current) => ({ ...current, [product.id]: event.target.value }))} />}</td><td><span className={openingStock ? 'status positive' : 'status-off'}>{openingStock ? 'Sudah diatur' : 'Belum diatur'}</span></td><td><button className="text-button" type="button" disabled={Boolean(openingStock) || savingProductId === product.id} onClick={() => void save(product.id)}>{savingProductId === product.id ? 'Menyimpan...' : openingStock ? 'Tersimpan' : 'Simpan'}</button></td></tr>
+      })}</tbody></table></div>}
+    </div>
+  </AdminPage>
 }
