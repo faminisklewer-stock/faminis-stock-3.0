@@ -36,12 +36,11 @@ This SOP applies to staging and pilot operations. Critical actions require an ac
 
 1. Select source and destination locations.
 2. Add product quantities and verify the list.
-3. Submit as DRAFT, then REQUESTED.
-4. Only an authorized user may approve.
-5. Warehouse ships only after APPROVED.
-6. The destination counts the shipment before receiving.
-7. For a shortage or damage, enter the exact reason before receiving.
-8. Complete only after the receiving result is verified.
+3. Submit as DRAFT for the destination to review. The destination may edit or delete the draft, or approve it directly.
+4. The source ships only after the transfer is APPROVED.
+5. The destination counts the shipment before receiving.
+6. For a shortage or damage, enter the exact reason before receiving.
+7. Complete only after the receiving result is verified.
 
 ## SOP 06 - Stock Adjustment
 

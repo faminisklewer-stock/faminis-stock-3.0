@@ -345,11 +345,12 @@ begin
   raise notice 'IDEMPOTENCY_OK: duplicate key=% created_transactions=%', v_key, v_total;
 end $$;
 
--- 8) Transfer lifecycle: DRAFT -> REQUESTED -> APPROVED -> SHIPPED -> RECEIVED -> COMPLETED.
+-- 8) Transfer lifecycle: DRAFT -> APPROVED -> SHIPPED -> RECEIVED -> COMPLETED.
 do $$
 declare
   v_warehouse_id uuid;
   v_master_id uuid;
+  v_destination_user_id uuid;
   v_location_a uuid;
   v_location_b uuid;
   v_product_id uuid;
@@ -362,14 +363,15 @@ begin
   select id into v_master_id from public.profiles where role = 'MASTER' limit 1;
   select id into v_location_a from public.locations order by name limit 1;
   select id into v_location_b from public.locations order by name offset 1 limit 1;
+  select id into v_destination_user_id from public.profiles where role = 'LIVE' and location_id = v_location_b limit 1;
   select s.product_id into v_product_id
   from public.stocks s
   where s.location_id = v_location_a
   order by s.quantity desc
   limit 1;
 
-  if v_warehouse_id is null or v_master_id is null or v_location_a is null or v_location_b is null or v_product_id is null then
-    raise notice 'SKIP_TRANSFER_FLOW_TEST: missing WAREHOUSE, MASTER, two locations, or stock data in staging';
+  if v_warehouse_id is null or v_master_id is null or v_destination_user_id is null or v_location_a is null or v_location_b is null or v_product_id is null then
+    raise notice 'SKIP_TRANSFER_FLOW_TEST: missing WAREHOUSE, MASTER, destination LIVE user, two locations, or stock data in staging';
     return;
   end if;
 
@@ -388,9 +390,9 @@ begin
     raise exception 'TRANSFER_DRAFT_STATUS_FAILED: status=%', v_transfer.status;
   end if;
 
+  perform public.as_user(v_destination_user_id);
+  select public.transition_transfer(v_transfer.id, 'APPROVED', 'approved directly from draft') into v_transfer;
   perform public.as_user(v_master_id);
-  select public.transition_transfer(v_transfer.id, 'REQUESTED', 'approved by master') into v_transfer;
-  select public.transition_transfer(v_transfer.id, 'APPROVED', 'approved by owner') into v_transfer;
   select public.transition_transfer(v_transfer.id, 'SHIPPED', 'shipped to destination') into v_transfer;
 
   if v_transfer.status <> 'SHIPPED' then
@@ -471,8 +473,7 @@ begin
   ) into v_transfer;
 
   perform public.as_user(v_master_id);
-  select public.transition_transfer(v_transfer.id, 'REQUESTED', 'approve') into v_transfer;
-  select public.transition_transfer(v_transfer.id, 'APPROVED', 'approve') into v_transfer;
+  select public.transition_transfer(v_transfer.id, 'APPROVED', 'approved directly from draft') into v_transfer;
   select public.transition_transfer(v_transfer.id, 'SHIPPED', 'ship') into v_transfer;
 
   begin

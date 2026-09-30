@@ -1899,10 +1899,10 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     const canActAsSource = !isLocationUser || transfer.source_location_id === profile.location_id
     const canActAsDestination = !isLocationUser || transfer.destination_location_id === profile.location_id
     if (tab === 'outgoing') {
-      if (transfer.status === 'DRAFT' && canActAsSource) return 'REQUESTED'
       if (transfer.status === 'APPROVED' && canActAsSource) return 'SHIPPED'
       return null
     }
+    if (transfer.status === 'DRAFT' && canActAsDestination) return 'APPROVED'
     if (transfer.status === 'REQUESTED' && canActAsDestination) return 'APPROVED'
     if (transfer.status === 'SHIPPED' && canActAsDestination) return 'RECEIVED'
     if (transfer.status === 'RECEIVED' && canActAsDestination) return 'COMPLETED'
@@ -1974,7 +1974,6 @@ function TransfersView({ profile, locations }: { profile: Profile; locations: Lo
     const nextAction = actionFor(transfer)
     if (!nextAction) return <span className="muted-text">Menunggu tahap lanjut</span>
     const actionLabels: Record<string, string> = {
-      REQUESTED: 'Kirim permintaan',
       APPROVED: 'Setujui permintaan',
       SHIPPED: 'Kirim barang',
       RECEIVED: 'Terima barang',

@@ -95,8 +95,9 @@ where received_quantity is not null
 -- 1. MASTER/OWNER/WAREHOUSE/LIVE/RUKO login and logout.
 -- 2. RUKO-3 reads operational records only for its own location; stock report is a read-only all-location exception.
 -- 3. Purchase, sale, adjustment, and transfer RPCs with expected audit rows.
--- 4. Transfer state machine: DRAFT -> REQUESTED -> APPROVED -> SHIPPED
---    -> RECEIVED -> COMPLETED, plus rejected/cancelled and invalid transitions.
+-- 4. Transfer state machine: DRAFT -> APPROVED -> SHIPPED
+--    -> RECEIVED -> COMPLETED, plus legacy REQUESTED -> APPROVED,
+--    rejected/cancelled, and invalid transitions.
 -- 5. Partial receiving requires a non-empty note and persists discrepancy_reason.
 -- 6. Two concurrent sales against stock=5 with quantity=4: one must fail.
 -- 7. Repeat the same sale idempotency key: exactly one transaction must exist.
