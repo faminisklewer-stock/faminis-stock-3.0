@@ -91,7 +91,7 @@ function getInitialActiveMenu(profile: Profile) {
 type DashboardData = {
   transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; sale_type?: 'ECER' | 'GROSIR'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
   transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
-  products: Array<{ id: string; name: string; sku?: string; category_id?: string | null }>
+  products: Array<{ id: string; name: string; sku?: string; category_id?: string | null; active: boolean }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
   movements: Array<{ id: string; movement_type: string; quantity: number; location_id: string; created_at: string }>
   locations: LocationOption[]
@@ -447,7 +447,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       ] = await Promise.allSettled([
         client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
-        client.from('products').select('id, name, sku, category_id').eq('active', true).order('name'),
+        client.from('products').select('id, name, sku, category_id, active').order('name'),
         client.rpc('get_stock_report'),
         client.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').order('created_at', { ascending: false }).limit(8),
         client.from('locations').select('id, name, kind').eq('active', true).order('name'),
@@ -589,7 +589,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
 
   const locationId = dashboard.locations.find((item) => item.name === location)?.id
   const visibleTransactions = summaryTransactions.filter((item) => !locationId || item.location_id === locationId)
-  const activeProductIds = new Set(dashboard.products.map((item) => item.id))
+  const activeProductIds = new Set(dashboard.products.filter((item) => item.active).map((item) => item.id))
   const activeLocationIds = new Set(dashboard.locations.map((item) => item.id))
   const visibleStock = dashboard.stock.filter((item) => activeProductIds.has(item.product_id) && activeLocationIds.has(item.location_id) && (!locationId || item.location_id === locationId))
   const visibleMovements = summaryMovements.filter((item) => !locationId || item.location_id === locationId)
@@ -759,7 +759,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     for (const item of dashboard.stock.filter((entry) => scopeLocationIds.includes(entry.location_id))) {
       stockMap.set(`${item.location_id}:${item.product_id}`, Number(item.quantity))
     }
-    const stockRows = scopeLocationIds.flatMap((locationId) => dashboard.products.map((product) => ({
+    const stockRows = scopeLocationIds.flatMap((locationId) => dashboard.products.filter((product) => product.active).map((product) => ({
       product: productName(product.id),
       location: locationName(locationId),
       quantity: Number(stockMap.get(`${locationId}:${product.id}`) ?? 0),
@@ -1620,18 +1620,18 @@ function ProductsView({ profile }: { profile: Profile }) {
     else void loadProducts()
   }
 
-  async function saveProductName(event: FormEvent, product: ProductRecord) {
-    event.preventDefault()
-    if (!client || !canManage) return
+  async function saveProductName(product: ProductRecord) {
+    if (!client || !canManage || savingName) return
     const nextName = editedProductName.trim()
     if (!nextName) { setNameEditError('Nama produk wajib diisi.'); return }
     setSavingName(true)
     setNameEditError('')
-    const { error: updateError } = await client.from('products').update({ name: nextName }).eq('id', product.id)
+    const { data: updatedProduct, error: updateError } = await client.from('products').update({ name: nextName }).eq('id', product.id).select('id, name').maybeSingle()
     setSavingName(false)
-    if (updateError) { setNameEditError('Nama produk gagal diubah.'); return }
+    if (updateError || !updatedProduct) { setNameEditError('Nama produk gagal diubah. Coba lagi.'); return }
+    setProducts((current) => current.map((item) => item.id === product.id ? { ...item, name: updatedProduct.name } : item))
     setEditingProductId(null)
-    void loadProducts()
+    window.dispatchEvent(new CustomEvent('faminis:data-changed', { detail: { productId: updatedProduct.id, productName: updatedProduct.name } }))
   }
 
   const filtered = products.filter((product) => {
@@ -1660,15 +1660,14 @@ function ProductsView({ profile }: { profile: Profile }) {
         <div className="category-pills compact" aria-label="Filter daftar produk">{categories.map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId((current) => current === category.id ? '' : category.id)}>{category.name}</button>)}</div>
         {loading ? <div className="empty-state">Memuat produk...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th>Varian</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>{filtered.map((product) => {
           const isEditingName = editingProductId === product.id
-          const nameFormId = `product-name-${product.id}`
           return <tr key={product.id}>
             <td><strong>{product.sku}</strong></td>
-            <td>{isEditingName ? <form id={nameFormId} onSubmit={(event) => void saveProductName(event, product)}><input aria-label={`Nama produk ${product.sku}`} autoFocus value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} disabled={savingName} />{nameEditError && <p className="form-error">{nameEditError}</p>}</form> : product.name}</td>
+            <td>{isEditingName ? <form onSubmit={(event) => { event.preventDefault(); void saveProductName(product) }}><input aria-label={`Nama produk ${product.sku}`} autoFocus value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} disabled={savingName} />{nameEditError && <p className="form-error">{nameEditError}</p>}</form> : product.name}</td>
             <td>{categories.find((category) => category.id === product.category_id)?.name ?? 'Tanpa kategori'}</td>
             <td>{product.variant ?? '-'}</td>
             <td>{product.unit}</td>
             <td><span className={`status ${product.active ? '' : 'status-off'}`}><i></i>{product.active ? 'Aktif' : 'Nonaktif'}</span></td>
-            <td>{isEditingName ? <><button className="text-button" type="submit" form={nameFormId} disabled={savingName}>{savingName ? 'Menyimpan...' : 'Simpan'}</button><button className="text-button" type="button" onClick={() => { setEditingProductId(null); setNameEditError('') }} disabled={savingName}>Batal</button></> : <><button className="text-button" type="button" onClick={() => { setEditedProductName(product.name); setNameEditError(''); setEditingProductId(product.id) }} disabled={editingProductId !== null}>Edit nama</button><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></>}</td>
+            <td>{isEditingName ? <><button className="text-button" type="button" onClick={() => void saveProductName(product)} disabled={savingName}>{savingName ? 'Menyimpan...' : 'Simpan'}</button><button className="text-button" type="button" onClick={() => { setEditingProductId(null); setNameEditError('') }} disabled={savingName}>Batal</button></> : <><button className="text-button" type="button" onClick={() => { setEditedProductName(product.name); setNameEditError(''); setEditingProductId(product.id) }} disabled={editingProductId !== null}>Edit nama</button><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></>}</td>
           </tr>
         })}</tbody></table>{!filtered.length && <div className="empty-state">Produk tidak ditemukan.</div>}</div>}
       </div>
@@ -2182,7 +2181,7 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     ? stockReportLocations
     : stockReportLocations.filter((item) => item.id === location)
   const modeStock = selectedStockLocations.flatMap((stockLocation) => data.products
-    .filter((product) => stockCategory === 'all' || (product.sku ?? '').toUpperCase().startsWith(`${stockCategory}-`))
+    .filter((product) => product.active && (stockCategory === 'all' || (product.sku ?? '').toUpperCase().startsWith(`${stockCategory}-`)))
     .map((product) => ({
       product_id: product.id,
       location_id: stockLocation.id,
@@ -2190,7 +2189,7 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
       product,
     })))
   const selectedLocationStock = data.stock.filter((stock) => location === 'all' || stock.location_id === location)
-  const stockSkuCount = data.products.length
+  const stockSkuCount = data.products.filter((product) => product.active).length
   const stockTotalQuantity = selectedLocationStock.reduce((sum, stock) => sum + Number(stock.quantity), 0)
   useEffect(() => {
     if (reportMode !== 'stok') return
