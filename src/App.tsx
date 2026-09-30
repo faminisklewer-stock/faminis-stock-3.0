@@ -1565,6 +1565,10 @@ function ProductsView({ profile }: { profile: Profile }) {
   const [unit, setUnit] = useState('pcs')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [editedProductName, setEditedProductName] = useState('')
+  const [savingName, setSavingName] = useState(false)
+  const [nameEditError, setNameEditError] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const client = supabase
@@ -1616,6 +1620,20 @@ function ProductsView({ profile }: { profile: Profile }) {
     else void loadProducts()
   }
 
+  async function saveProductName(event: FormEvent, product: ProductRecord) {
+    event.preventDefault()
+    if (!client || !canManage) return
+    const nextName = editedProductName.trim()
+    if (!nextName) { setNameEditError('Nama produk wajib diisi.'); return }
+    setSavingName(true)
+    setNameEditError('')
+    const { error: updateError } = await client.from('products').update({ name: nextName }).eq('id', product.id)
+    setSavingName(false)
+    if (updateError) { setNameEditError('Nama produk gagal diubah.'); return }
+    setEditingProductId(null)
+    void loadProducts()
+  }
+
   const filtered = products.filter((product) => {
     const productCategoryId = getProductCategoryId(product, categories)
     const matchesCategory = !selectedCategoryId || productCategoryId === selectedCategoryId
@@ -1623,7 +1641,39 @@ function ProductsView({ profile }: { profile: Profile }) {
     return matchesCategory && matchesQuery
   })
   if (!canManage) return <AccessRestricted title="Produk" message="Hanya MASTER yang dapat mengelola katalog produk." />
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">PRODUCT CATALOG</p><h1>Produk</h1><p className="subtitle">Kelola katalog tanpa menyimpan harga jual permanen.</p></div></div><div className="operation-grid"><form className="panel operation-form" onSubmit={saveProduct}><div className="panel-heading"><div><h2>Tambah produk</h2><p>Harga dimasukkan saat transaksi kasir.</p></div></div><label>Kategori<select value={selectedCategoryId} onChange={(event) => setSelectedCategoryId(event.target.value)}><option value="">Pilih kategori</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label>SKU<input value={sku} onChange={(event) => setSku(event.target.value.toUpperCase())} placeholder="MKN-PRM" /></label><label>Nama produk<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Mukena Premium" /></label><label>Varian<input value={variant} onChange={(event) => setVariant(event.target.value)} placeholder="Premium / Polos / Batik" /></label><label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="pcs" /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan produk'}</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar produk</h2><p>{products.length} produk terdaftar</p></div><input className="table-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau nama" /></div><div className="category-pills compact" aria-label="Filter daftar produk">{categories.map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId((current) => current === category.id ? '' : category.id)}>{category.name}</button>)}</div>{loading ? <div className="empty-state">Memuat produk...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th>Varian</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>{filtered.map((product) => <tr key={product.id}><td><strong>{product.sku}</strong></td><td>{product.name}</td><td>{categories.find((category) => category.id === product.category_id)?.name ?? 'Tanpa kategori'}</td><td>{product.variant ?? '-'}</td><td>{product.unit}</td><td><span className={`status ${product.active ? '' : 'status-off'}`}><i></i>{product.active ? 'Aktif' : 'Nonaktif'}</span></td><td><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></td></tr>)}</tbody></table>{!filtered.length && <div className="empty-state">Produk tidak ditemukan.</div>}</div>}</div></div></section>
+  return <section className="module-page">
+    <div className="module-heading"><div><p className="eyebrow">PRODUCT CATALOG</p><h1>Produk</h1><p className="subtitle">Kelola katalog tanpa menyimpan harga jual permanen.</p></div></div>
+    <div className="operation-grid">
+      <form className="panel operation-form" onSubmit={saveProduct}>
+        <div className="panel-heading"><div><h2>Tambah produk</h2><p>Harga dimasukkan saat transaksi kasir.</p></div></div>
+        <label>Kategori<select value={selectedCategoryId} onChange={(event) => setSelectedCategoryId(event.target.value)}><option value="">Pilih kategori</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <label>SKU<input value={sku} onChange={(event) => setSku(event.target.value.toUpperCase())} placeholder="MKN-PRM" /></label>
+        <label>Nama produk<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Mukena Premium" /></label>
+        <label>Varian<input value={variant} onChange={(event) => setVariant(event.target.value)} placeholder="Premium / Polos / Batik" /></label>
+        <label>Unit<input value={unit} onChange={(event) => setUnit(event.target.value)} placeholder="pcs" /></label>
+        {error && <p className="form-error">{error}</p>}
+        {message && <p className="form-success">{message}</p>}
+        <button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan produk'}</button>
+      </form>
+      <div className="panel table-panel">
+        <div className="panel-heading"><div><h2>Daftar produk</h2><p>{products.length} produk terdaftar</p></div><input className="table-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau nama" /></div>
+        <div className="category-pills compact" aria-label="Filter daftar produk">{categories.map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId((current) => current === category.id ? '' : category.id)}>{category.name}</button>)}</div>
+        {loading ? <div className="empty-state">Memuat produk...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th>Varian</th><th>Unit</th><th>Status</th><th></th></tr></thead><tbody>{filtered.map((product) => {
+          const isEditingName = editingProductId === product.id
+          const nameFormId = `product-name-${product.id}`
+          return <tr key={product.id}>
+            <td><strong>{product.sku}</strong></td>
+            <td>{isEditingName ? <form id={nameFormId} onSubmit={(event) => void saveProductName(event, product)}><input aria-label={`Nama produk ${product.sku}`} autoFocus value={editedProductName} onChange={(event) => setEditedProductName(event.target.value)} disabled={savingName} />{nameEditError && <p className="form-error">{nameEditError}</p>}</form> : product.name}</td>
+            <td>{categories.find((category) => category.id === product.category_id)?.name ?? 'Tanpa kategori'}</td>
+            <td>{product.variant ?? '-'}</td>
+            <td>{product.unit}</td>
+            <td><span className={`status ${product.active ? '' : 'status-off'}`}><i></i>{product.active ? 'Aktif' : 'Nonaktif'}</span></td>
+            <td>{isEditingName ? <><button className="text-button" type="submit" form={nameFormId} disabled={savingName}>{savingName ? 'Menyimpan...' : 'Simpan'}</button><button className="text-button" type="button" onClick={() => { setEditingProductId(null); setNameEditError('') }} disabled={savingName}>Batal</button></> : <><button className="text-button" type="button" onClick={() => { setEditedProductName(product.name); setNameEditError(''); setEditingProductId(product.id) }} disabled={editingProductId !== null}>Edit nama</button><button className="text-button" type="button" onClick={() => void toggleProduct(product)}>{product.active ? 'Nonaktifkan' : 'Aktifkan'}</button></>}</td>
+          </tr>
+        })}</tbody></table>{!filtered.length && <div className="empty-state">Produk tidak ditemukan.</div>}</div>}
+      </div>
+    </div>
+  </section>
 }
 
 function StockView({ profile, locations }: { profile: Profile; locations: LocationOption[] }) {
