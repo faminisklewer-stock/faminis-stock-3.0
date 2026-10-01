@@ -1693,6 +1693,7 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [resetConfirmationOpen, setResetConfirmationOpen] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const client = supabase
@@ -1732,6 +1733,14 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
 
   useEffect(() => { void loadStock() }, [loadStock])
   useEffect(() => { if (!locationId && allowedLocations[0]?.id) setLocationId(allowedLocations[0].id) }, [locationId, allowedLocations])
+  useEffect(() => {
+    if (!resetConfirmationOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !resetting) setResetConfirmationOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [resetConfirmationOpen, resetting])
 
   async function adjustStock(event: FormEvent) {
     event.preventDefault()
@@ -1756,6 +1765,11 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
     window.dispatchEvent(new Event('faminis:data-changed'))
   }
 
+  async function confirmResetLocationStock() {
+    await resetLocationStock()
+    setResetConfirmationOpen(false)
+  }
+
   const selectedLocationIds = showAllLocations ? allowedLocations.map((location) => location.id) : [locationId]
   const rows: StockRow[] = selectedLocationIds
     .flatMap((selectedLocationId) => products.map((product) => {
@@ -1777,15 +1791,17 @@ function StockView({ profile, locations }: { profile: Profile; locations: Locati
   const totalStock = rows.reduce((sum, row) => sum + row.quantity, 0)
   const totalProductCount = new Set(rows.map((row) => row.product_id)).size
   const lowStockCount = rows.filter((row) => row.quantity <= 5).length
+  const resetLocationName = allowedLocations.find((location) => location.id === locationId)?.name ?? 'lokasi ini'
 
   return <section className="module-page">
-    <div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={profile.role !== 'MASTER' && allowedLocations.length < 2}>{profile.role === 'MASTER' && <option value="all">Semua lokasi</option>}{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div>
-    <div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div>{canAdjust && <button className="button button-secondary" type="button" disabled={resetting || locationId === 'all'} title={locationId === 'all' ? 'Pilih satu lokasi untuk mereset stok.' : undefined} onClick={() => { void resetLocationStock() }}>{resetting ? 'Mereset...' : 'Reset stok ke 0'}</button>}</div>
+    <div className="module-heading"><div><p className="eyebrow">INVENTORY</p><h1>Stok</h1><p className="subtitle">Saldo per lokasi dan penyesuaian stok tercatat di audit log.</p></div>{canAdjust && <button className="button button-secondary" type="button" disabled={resetting || locationId === 'all'} title={locationId === 'all' ? 'Pilih satu lokasi untuk mereset stok.' : undefined} onClick={() => setResetConfirmationOpen(true)}>{resetting ? 'Mereset...' : 'Reset stok ke 0'}</button>}</div>
+    <div className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari SKU atau produk..." /></div><label className="pos-location">Lokasi<select value={locationId} onChange={(event) => setLocationId(event.target.value)} disabled={profile.role !== 'MASTER' && allowedLocations.length < 2}>{profile.role === 'MASTER' && <option value="all">Semua lokasi</option>}{allowedLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label></div>
     <div className="stock-summary" aria-label="Ringkasan stok"><div className="stock-summary-card"><span>Total item</span><strong>{formatNumber(totalProductCount)}</strong><small>SKU aktif</small></div><div className="stock-summary-card"><span>Saldo total</span><strong>{formatNumber(totalStock)}</strong><small>Unit tercatat</small></div><div className="stock-summary-card warning"><span>Low stock</span><strong>{formatNumber(lowStockCount)}</strong><small>Perlu perhatian</small></div></div>
     <div className="category-pills compact" aria-label="Filter kategori stok">{[{ id: 'all', name: 'Semua' }, ...categories].map((category) => <button key={category.id} type="button" className={`category-pill ${selectedCategoryId === category.id ? 'active' : ''}`} onClick={() => setSelectedCategoryId(category.id)}>{category.name}</button>)}</div>
     {error && <div className="data-error">{error}</div>}{message && <div className="form-success operation-message">{message}</div>}
     <div className="panel table-panel">{loading ? <div className="empty-state">Memuat stok...</div> : <div className="table-wrap"><table><thead><tr><th>SKU</th><th>Produk</th>{showAllLocations && <th>Lokasi</th>}<th>Unit</th><th>Saldo</th><th>Aksi</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.location_id}:${row.product_id}`}><td><strong>{row.product?.sku}</strong></td><td>{row.product?.name}</td>{showAllLocations && <td>{allowedLocations.find((location) => location.id === row.location_id)?.name}</td>}<td>{row.product?.unit}</td><td><strong className={row.quantity <= 5 ? 'stock-low' : ''}>{formatNumber(row.quantity)}</strong></td><td><button className="text-button" type="button" disabled={!canAdjust} onClick={() => { setSelected(row); setPhysical(String(row.quantity)); setReason('') }}>Adjustment</button></td></tr>)}</tbody></table>{!rows.length && <div className="empty-state">{showAllLocations ? 'Belum ada saldo stok di lokasi aktif.' : 'Belum ada saldo stok di lokasi ini.'}</div>}</div>}</div>
     {selected && <div className="operation-dialog"><form className="panel operation-form" onSubmit={adjustStock}><div className="panel-heading"><div><h2>Adjustment stok</h2><p>{selected.product?.sku} · {allowedLocations.find((location) => location.id === selected.location_id)?.name} · Sistem {selected.quantity} unit</p></div><button className="more-button" type="button" onClick={() => setSelected(null)} aria-label="Tutup">×</button></div><label>Jumlah fisik<input type="number" min="0" value={physical} onChange={(event) => setPhysical(event.target.value)} /></label><label>Alasan<textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Stock opname, rusak, atau koreksi lainnya" /></label><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan adjustment'}</button></form></div>}
+    {resetConfirmationOpen && <div className="operation-dialog" role="presentation"><section className="panel operation-form reset-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="reset-stock-title" aria-describedby="reset-stock-description"><div className="reset-confirmation-copy"><h2 id="reset-stock-title">Reset stok di {resetLocationName}?</h2><p id="reset-stock-description">Semua saldo stok di lokasi ini akan diatur menjadi 0. Pastikan lokasi yang dipilih sudah benar.</p></div><div className="reset-confirmation-actions"><button className="button button-secondary" type="button" autoFocus disabled={resetting} onClick={() => setResetConfirmationOpen(false)}>Tidak</button><button className="button button-primary" type="button" disabled={resetting} onClick={() => void confirmResetLocationStock()}>{resetting ? 'Mereset...' : 'Iya, reset stok ke 0'}</button></div></section></div>}
   </section>
 }
 

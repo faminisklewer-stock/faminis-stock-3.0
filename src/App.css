@@ -1257,3 +1257,9 @@ select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2p
 .pos-page .cart-panel-popup .cart-line > button { top: 12px; right: 12px; }
 .stock-summary-card span, .stock-summary-card strong, .stock-summary-card small { color: var(--ink); }
 .stock-summary-card strong { font-weight: 900; }
+.reset-confirmation { width: min(100%, 460px); }
+.reset-confirmation-copy { display: grid; gap: 8px; }
+.reset-confirmation-copy h2, .reset-confirmation-copy p { margin: 0; }
+.reset-confirmation-copy h2 { color: var(--ink); font-size: 20px; }
+.reset-confirmation-copy p { color: var(--muted); line-height: 1.5; }
+.reset-confirmation-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
