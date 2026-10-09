@@ -49,6 +49,13 @@ test.describe('operational PWA flows', () => {
     await cartButton.click()
     await expect(page.locator('.cart-panel-popup')).not.toBeVisible()
   })
+
+  test('does not expose transaction editing to operational users', async ({ page }) => {
+    const mobileNav = page.getByRole('navigation', { name: 'Navigasi utama mobile' })
+    await mobileNav.getByRole('button', { name: 'Laporan' }).click()
+    await expect(page.locator('.sale-history-panel').getByRole('button', { name: 'Edit transaksi' })).toHaveCount(0)
+    await expect(page.getByRole('dialog', { name: 'Edit transaksi' })).toHaveCount(0)
+  })
 })
 
 test.describe('master desktop shell', () => {

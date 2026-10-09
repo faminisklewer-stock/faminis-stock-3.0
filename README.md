@@ -15,7 +15,7 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in `.env.local`. The dashbo
 ## Supabase setup
 
 1. Create a dedicated Supabase project for the target environment.
-2. Apply migrations in order: `0001` through `0006` from `supabase/migrations/`.
+2. Apply all migrations in order, `0001` through `0030`, from `supabase/migrations/`.
 3. Run `supabase/seed.sql` for locations, categories, and development settings.
 4. Run `0004_seed_demo_products.sql` only in development or an explicitly approved demo environment.
 5. Create users through Supabase Auth, then add their rows to `public.profiles` with one of `MASTER`, `OWNER`, `WAREHOUSE`, `LIVE`, or `RUKO` and the appropriate `location_id`.
@@ -32,13 +32,13 @@ Set the public key as `VITE_VAPID_PUBLIC_KEY` in the frontend environment.
 
 After deployment, users can open the notification bell and choose **Aktifkan notifikasi perangkat**. The browser subscription is stored per user, and transfer changes send push notifications to active users at the source and destination locations. The private VAPID key must only exist in Supabase Edge Function secrets.
 
-The `record_sale` RPC is the supported sale entry point. It performs idempotency checking, invoice generation, payment validation, row-safe stock deduction, movement creation, and audit logging in one PostgreSQL transaction. Direct stock writes are intentionally not exposed to operational users.
+The `record_sale` RPC is the supported sale entry point. It performs idempotency checking, invoice generation, payment validation, row-safe stock deduction, movement creation, and audit logging in one PostgreSQL transaction. Only MASTER can use the `edit_sale` RPC to correct existing transactions atomically, including their items, stock movements, payment details, and audit trail. Direct stock writes are intentionally not exposed to operational users.
 
 ## Architecture
 
 - `src/App.tsx`: responsive master dashboard shell and navigation surface.
 - `src/lib/supabase.ts`: typed Supabase client, disabled cleanly when environment variables are absent.
-- `supabase/migrations/0001_faminis_pos.sql` through `0006_storage_policies.sql`: tables, constraints, indexes, RLS policies, RPC hardening, demo catalog, and Storage policies.
+- `supabase/migrations/0001_faminis_pos.sql` through `0030_edit_sales.sql`: tables, constraints, indexes, RLS policies, operational RPCs, and sale correction.
 - `supabase/seed.sql`: safe development seed data.
 - `public/sw.js` and `public/manifest.json`: installable PWA shell. The service worker only caches same-origin static shell requests and never caches Supabase responses.
 

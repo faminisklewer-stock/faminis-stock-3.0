@@ -1,5 +1,5 @@
-import { Component, useCallback, useEffect, useState } from 'react'
-import type { ErrorInfo, FormEvent, ReactNode } from 'react'
+import { Component, useCallback, useEffect, useRef, useState } from 'react'
+import type { ErrorInfo, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import {
@@ -105,6 +105,28 @@ type DashboardData = {
 
 type SummaryPeriod = 'daily' | 'weekly' | 'monthly'
 type ReportExportFilter = { periodLabel: string; startTime: number | null; endTime: number | null; locationIds: string[]; hasValidPeriod: boolean }
+type PaymentMethod = 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT'
+type SaleHistoryItem = {
+  product_id: string
+  quantity: number
+  unit_price: number
+  products: { name: string; sku: string; active: boolean } | null
+}
+type SalePayment = { method: PaymentMethod; paid_amount: number; change_amount: number }
+type SaleHistoryRecord = {
+  id: string
+  invoice_no: string
+  location_id: string
+  edited_at: string | null
+  subtotal: number
+  discount: number
+  grand_total: number
+  created_at: string
+  transaction_items: SaleHistoryItem[]
+  payments: SalePayment[] | SalePayment | null
+}
+type SaleEditProduct = { id: string; sku: string; name: string; unit: string; active: boolean }
+type EditableSaleItem = { key: string; product_id: string; product_name: string; product_active: boolean; quantity: string; unit_price: string }
 
 function getSummaryPeriodRange(period: SummaryPeriod, referenceDate = new Date()) {
   const start = new Date(referenceDate)
@@ -2245,7 +2267,325 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     const title = isStockReport ? 'Laporan stok' : reportMode === 'transfer-masuk' ? 'Transfer masuk' : 'Transfer keluar'
     return <section className="module-page reports-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{title}</h1><p className="subtitle">Data operasional sesuai lokasi Anda.</p></div>{renderReportPeriodFilter()}</div>{renderReportModeTabs()}<div className="panel table-panel"><div className="panel-heading"><div><h2>{isStockReport ? 'Stok per lokasi' : title}</h2><p>{isStockReport ? `${modeStock.length} baris stok` : `${modeTransfers.length} transfer tercatat`}</p></div></div><div className="table-wrap">{isStockReport ? <table><thead><tr><th>Produk</th><th>Lokasi</th><th>Jumlah</th><th>Status</th></tr></thead><tbody>{modeStock.map((stock) => <tr key={`${stock.location_id}:${stock.product_id}`}><td><strong>{productName(stock.product_id)}</strong></td><td>{locationName(stock.location_id)}</td><td>{formatNumber(Number(stock.quantity))}</td><td><span className={Number(stock.quantity) <= 5 ? 'status negative' : 'status positive'}>{Number(stock.quantity) <= 5 ? 'Menipis' : 'Aman'}</span></td></tr>)}</tbody></table> : <table><thead><tr><th>Transfer</th><th>Dari</th><th>Ke</th><th>Status</th><th>Tanggal</th></tr></thead><tbody>{modeTransfers.map((transfer) => <tr key={transfer.id}><td><strong>{transfer.id.replace(/-/g, '').slice(0, 8).toUpperCase()}</strong></td><td>{locationName(transfer.source_location_id)}</td><td>{locationName(transfer.destination_location_id)}</td><td><span className="transfer-badge">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleString('id-ID')}</td></tr>)}</tbody></table>}{(isStockReport ? !modeStock.length : !modeTransfers.length) && <div className="empty-state">Belum ada data untuk mode laporan ini.</div>}</div></div></section>
   }
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{renderReportPeriodFilter()}<label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" onClick={onDownloadCsv}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" onClick={() => onDownloadPdf(reportPdfFilter)}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}<div className="report-cards"><MetricCard label="Omzet" value={formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transaksi" value={formatNumber(transactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div></section>
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{renderReportPeriodFilter()}<label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" onClick={onDownloadCsv}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" onClick={() => onDownloadPdf(reportPdfFilter)}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}<div className="report-cards"><MetricCard label="Omzet" value={formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transaksi" value={formatNumber(transactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div><SalesHistoryPanel profile={profile} locations={reportLocations} locationId={location} products={data.products} /></section>
+}
+
+function SalesHistoryPanel({ profile, locations, locationId, products }: { profile: Profile; locations: LocationOption[]; locationId: string; products: DashboardData['products'] }) {
+  const pageSize = 25
+  const canEdit = profile.role === 'MASTER'
+  const [rows, setRows] = useState<SaleHistoryRecord[]>([])
+  const [totalRows, setTotalRows] = useState(0)
+  const [page, setPage] = useState(0)
+  const [query, setQuery] = useState('')
+  const [loadedRequestKey, setLoadedRequestKey] = useState('')
+  const [loadError, setLoadError] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [editingSale, setEditingSale] = useState<SaleHistoryRecord | null>(null)
+  const [editItems, setEditItems] = useState<EditableSaleItem[]>([])
+  const [editProducts, setEditProducts] = useState<SaleEditProduct[]>([])
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [productsError, setProductsError] = useState('')
+  const [productRefreshKey, setProductRefreshKey] = useState(0)
+  const [editMethod, setEditMethod] = useState<PaymentMethod>('CASH')
+  const [editPaidAmount, setEditPaidAmount] = useState('')
+  const [editError, setEditError] = useState('')
+  const [editConflict, setEditConflict] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+  const editTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const editDialogRef = useRef<HTMLFormElement | null>(null)
+  const client = supabase
+  const requestKey = JSON.stringify([locationId, page, query, refreshKey])
+  const loading = Boolean(client) && loadedRequestKey !== requestKey
+
+  const closeEditor = useCallback(() => {
+    if (saving) return
+    setEditingSale(null)
+    window.requestAnimationFrame(() => editTriggerRef.current?.focus())
+  }, [saving])
+
+  useEffect(() => {
+    if (!client) return
+    const activeClient = client
+    let mounted = true
+    async function loadHistory() {
+      let request = activeClient.from('transactions')
+        .select('id, invoice_no, location_id, edited_at, subtotal, discount, grand_total, created_at, transaction_items(product_id, quantity, unit_price, products(name, sku, active)), payments(method, paid_amount, change_amount)', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+      if (locationId !== 'all') request = request.eq('location_id', locationId)
+      if (query.trim()) request = request.ilike('invoice_no', `%${query.trim()}%`)
+      try {
+        const { data, error, count } = await request.range(page * pageSize, (page + 1) * pageSize - 1)
+        if (!mounted) return
+        if (error) {
+          setLoadError(`Riwayat transaksi gagal dimuat: ${error.message}`)
+          setRows([])
+          setTotalRows(0)
+        } else if (page > 0 && page * pageSize >= (count ?? 0)) {
+          setTotalRows(count ?? 0)
+          setPage(0)
+        } else {
+          setRows((data ?? []) as unknown as SaleHistoryRecord[])
+          setTotalRows(count ?? 0)
+          setLoadError('')
+        }
+      } catch (error) {
+        if (!mounted) return
+        setLoadError(`Riwayat transaksi gagal dimuat: ${error instanceof Error ? error.message : 'koneksi gagal.'}`)
+        setRows([])
+        setTotalRows(0)
+      } finally {
+        if (mounted) setLoadedRequestKey(requestKey)
+      }
+    }
+    void loadHistory()
+    return () => { mounted = false }
+  }, [client, locationId, page, query, refreshKey, requestKey])
+
+  useEffect(() => {
+    if (!editingSale || !client) return
+    const activeClient = client
+    let mounted = true
+    async function loadProducts() {
+      try {
+        const result = await fetchAllPages((from, to) => activeClient
+          .from('products')
+          .select('id, sku, name, unit, active')
+          .eq('active', true)
+          .order('name')
+          .order('id')
+          .range(from, to))
+        if (!mounted) return
+        if (result.error) setProductsError(`Daftar produk gagal dimuat: ${result.error.message}`)
+        else setEditProducts(result.data ?? [])
+      } catch (error) {
+        if (mounted) setProductsError(`Daftar produk gagal dimuat: ${error instanceof Error ? error.message : 'koneksi gagal.'}`)
+      } finally {
+        if (mounted) setProductsLoading(false)
+      }
+    }
+    void loadProducts()
+    return () => { mounted = false }
+  }, [client, editingSale, productRefreshKey])
+
+  useEffect(() => {
+    if (!editingSale) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const focusFrame = window.requestAnimationFrame(() => {
+      const firstField = editDialogRef.current?.querySelector<HTMLElement>('.sale-edit-line select, .sale-edit-line input, .sale-edit-payment select, .sale-edit-payment input')
+      if (firstField) firstField.focus()
+      else editDialogRef.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus()
+    })
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [editingSale])
+
+  useEffect(() => {
+    if (!editingSale) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) closeEditor()
+    }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [closeEditor, editingSale, saving])
+
+  const editSubtotalCents = editItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * Math.round((Number(item.unit_price) || 0) * 100), 0)
+  const editSubtotal = editSubtotalCents / 100
+  const editTotalCents = Math.max(0, editSubtotalCents - Math.round(Number(editingSale?.discount ?? 0) * 100))
+  const editTotal = editTotalCents / 100
+  const editPaidNumber = Math.round(Number(editPaidAmount) * 100) / 100
+  const editChange = Math.max(0, Math.round(editPaidNumber * 100) - editTotalCents) / 100
+  const paymentFor = (sale: SaleHistoryRecord) => Array.isArray(sale.payments) ? sale.payments[0] : sale.payments
+  const historyProductName = (productId: string) => products.find((product) => product.id === productId)?.name ?? 'Produk tidak ditemukan'
+  const visibleLoadError = client ? loadError : 'Koneksi Supabase belum tersedia, riwayat transaksi tidak dapat dimuat.'
+
+  function openEditor(sale: SaleHistoryRecord, trigger: HTMLButtonElement) {
+    if (!canEdit) return
+    const payment = paymentFor(sale)
+    if (!payment) {
+      setLoadError(`Pembayaran untuk ${sale.invoice_no} tidak ditemukan, transaksi tidak dapat diedit.`)
+      return
+    }
+    editTriggerRef.current = trigger
+    setEditingSale(sale)
+    setEditItems(sale.transaction_items.map((item, index) => ({
+      key: `${sale.id}-${index}`,
+      product_id: item.product_id,
+      product_name: item.products?.name ?? historyProductName(item.product_id),
+      product_active: item.products?.active ?? false,
+      quantity: String(item.quantity),
+      unit_price: String(item.unit_price),
+    })))
+    setEditProducts([])
+    setEditMethod(payment.method)
+    setEditPaidAmount(String(payment.paid_amount))
+    setEditError('')
+    setEditConflict(false)
+    setProductsLoading(Boolean(client))
+    setProductsError('')
+    setMessage('')
+  }
+
+  function trapDialogFocus(event: ReactKeyboardEvent<HTMLFormElement>) {
+    if (event.key !== 'Tab') return
+    const dialog = event.currentTarget
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled])'))
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (!first || !last) return
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  function addEditItem() {
+    const product = editProducts.find((candidate) => !editItems.some((item) => item.product_id === candidate.id))
+    if (!product) return
+    setEditItems((current) => [...current, {
+      key: crypto.randomUUID(),
+      product_id: product.id,
+      product_name: product.name,
+      product_active: product.active,
+      quantity: '1',
+      unit_price: '',
+    }])
+  }
+
+  async function saveSaleEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!client || !editingSale || !canEdit) return
+    const normalizedItems = editItems.map((item) => ({
+      product_id: item.product_id,
+      quantity: Number(item.quantity),
+      unit_price: Math.round(Number(item.unit_price) * 100) / 100,
+    }))
+    if (!normalizedItems.length || normalizedItems.some((item) => !item.product_id || !Number.isInteger(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unit_price) || item.unit_price <= 0)) {
+      setEditError('Pastikan setiap item memiliki produk, jumlah bulat di atas 0, dan harga di atas 0.')
+      return
+    }
+    if (new Set(normalizedItems.map((item) => item.product_id)).size !== normalizedItems.length) {
+      setEditError('Produk yang sama tidak boleh dimasukkan lebih dari satu kali.')
+      return
+    }
+    if (!Number.isFinite(editPaidNumber) || editPaidNumber < editTotal) {
+      setEditError('Jumlah uang diterima tidak boleh kurang dari total transaksi.')
+      return
+    }
+    setSaving(true)
+    setEditError('')
+    let rpcError: string | null = null
+    try {
+      const { error } = await client.rpc('edit_sale', {
+        p_transaction_id: editingSale.id,
+        p_expected_edited_at: editingSale.edited_at,
+        p_items: normalizedItems,
+        p_method: editMethod,
+        p_paid_amount: editPaidNumber,
+      })
+      rpcError = error?.message ?? null
+    } catch (error) {
+      rpcError = error instanceof Error ? error.message : 'Koneksi gagal saat menyimpan transaksi.'
+    } finally {
+      setSaving(false)
+    }
+    if (rpcError) {
+      setEditConflict(rpcError.includes('TRANSACTION_CHANGED'))
+      const knownErrors: Record<string, string> = {
+        INSUFFICIENT_STOCK: 'Stok tidak mencukupi untuk perubahan jumlah atau produk ini.',
+        INSUFFICIENT_PAYMENT: 'Jumlah pembayaran kurang dari total transaksi.',
+        PERMISSION_DENIED: 'Akun ini tidak memiliki izin untuk mengedit transaksi. Hanya MASTER yang dapat melakukan koreksi.',
+        TRANSACTION_NOT_FOUND: 'Transaksi tidak ditemukan. Muat ulang riwayat lalu coba lagi.',
+        PAYMENT_NOT_FOUND: 'Data pembayaran transaksi tidak ditemukan, perubahan tidak disimpan.',
+        PRODUCT_NOT_ACTIVE: 'Produk pengganti sudah tidak aktif.',
+        DUPLICATE_PRODUCT: 'Produk yang sama tidak boleh dimasukkan lebih dari satu kali.',
+        TRANSACTION_CHANGED: 'Transaksi ini telah diedit pengguna lain. Muat ulang riwayat dan periksa data terbarunya.',
+      }
+      const knownError = Object.entries(knownErrors).find(([code]) => rpcError.includes(code))?.[1]
+      setEditError(knownError ?? `Transaksi gagal disimpan: ${rpcError}`)
+      return
+    }
+    setMessage(`Transaksi ${editingSale.invoice_no} berhasil diperbarui.`)
+    setEditingSale(null)
+    setLoadError('')
+    setRefreshKey((current) => current + 1)
+    window.dispatchEvent(new Event('faminis:data-changed'))
+    window.requestAnimationFrame(() => editTriggerRef.current?.focus())
+  }
+
+  const pageCount = Math.ceil(totalRows / pageSize)
+  const availableProducts = editProducts.filter((product) => !editItems.some((item) => item.product_id === product.id))
+  const editPaymentOptions: Array<{ value: PaymentMethod; label: string }> = [
+    { value: 'CASH', label: 'Tunai' },
+    { value: 'QRIS', label: 'QRIS' },
+    { value: 'TRANSFER', label: 'Transfer' },
+    { value: 'DEBIT', label: 'Debit' },
+    { value: 'CREDIT', label: 'Kredit' },
+  ]
+
+  return <>
+    <div className="panel table-panel sale-history-panel">
+      <div className="panel-heading">
+        <div><h2>Riwayat transaksi</h2><p>Semua transaksi, termasuk catatan lama. Cari nomor invoice bila perlu.</p></div>
+        <label className="sale-history-search">Cari invoice<input type="search" value={query} onChange={(event) => { setLoadError(''); setQuery(event.target.value); setPage(0) }} placeholder="Nomor invoice" /></label>
+      </div>
+      {message && <div className="form-success operation-message" role="status">{message}</div>}
+      {visibleLoadError && <div className="data-error" role="alert">{visibleLoadError}{client && <button className="text-button" type="button" onClick={() => { setLoadError(''); setRefreshKey((current) => current + 1) }}>Coba lagi</button>}</div>}
+      {loading ? <div className="empty-state" role="status">Memuat riwayat transaksi...</div> : <div className="table-wrap sale-history-table-wrap">
+        <table className="sale-history-table">
+          <thead><tr><th>Invoice</th><th>Produk dan jumlah</th><th>Lokasi</th><th>Total</th><th>Tanggal</th>{canEdit && <th>Aksi</th>}</tr></thead>
+          <tbody>{rows.map((sale) => {
+            const payment = paymentFor(sale)
+            return <tr key={sale.id}>
+              <td data-label="Invoice"><strong>{sale.invoice_no}</strong></td>
+              <td data-label="Produk dan jumlah"><div className="invoice-detail-list">{sale.transaction_items.map((item) => <span key={`${sale.id}-${item.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{item.products?.name ?? historyProductName(item.product_id)}</span><span className="invoice-detail-qty">Qty {item.quantity}</span></span>)}{!sale.transaction_items.length && <span className="muted-text">Detail item tidak tersedia</span>}</div></td>
+              <td data-label="Lokasi">{locations.find((location) => location.id === sale.location_id)?.name ?? 'Tidak diketahui'}</td>
+              <td data-label="Total"><strong>{formatCurrency(Number(sale.grand_total))}</strong>{payment && <small className="table-subline">{payment.method === 'CASH' ? 'Tunai' : payment.method} · Dibayar {formatCurrency(Number(payment.paid_amount))}</small>}</td>
+              <td data-label="Tanggal">{new Date(sale.created_at).toLocaleString('id-ID')}</td>
+              {canEdit && <td data-label="Aksi"><button type="button" className="text-button" disabled={!payment} title={!payment ? 'Data pembayaran transaksi tidak ditemukan.' : undefined} onClick={(event) => openEditor(sale, event.currentTarget)}>Edit transaksi</button></td>}
+            </tr>
+          })}</tbody>
+        </table>
+        {!rows.length && !visibleLoadError && <div className="empty-state">{query.trim() ? 'Tidak ada invoice yang cocok dengan pencarian.' : 'Belum ada transaksi di lokasi ini.'}</div>}
+      </div>}
+      {pageCount > 1 && <nav className="sale-history-pagination" aria-label="Halaman riwayat transaksi"><span>{page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalRows)} dari {formatNumber(totalRows)} transaksi</span><div><button type="button" className="button button-secondary" disabled={page === 0 || loading} onClick={() => setPage((current) => current - 1)}>Sebelumnya</button><button type="button" className="button button-secondary" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((current) => current + 1)}>Berikutnya</button></div></nav>}
+    </div>
+    {editingSale && canEdit && <div className="operation-dialog sale-edit-backdrop" role="presentation"><form ref={editDialogRef} className="panel operation-form sale-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="sale-edit-title" onKeyDown={trapDialogFocus} onSubmit={(event) => void saveSaleEdit(event)}>
+      <div className="panel-heading"><div><h2 id="sale-edit-title">Edit transaksi</h2><p>{editingSale.invoice_no} · {new Date(editingSale.created_at).toLocaleString('id-ID')}</p></div><button type="button" className="more-button sale-edit-close" aria-label="Tutup editor" disabled={saving} onClick={closeEditor}>×</button></div>
+      <div className="sale-edit-lines">
+        {editItems.map((item) => {
+          const choices = editProducts.filter((product) => product.id === item.product_id || !editItems.some((other) => other.key !== item.key && other.product_id === product.id))
+          return <div className="sale-edit-line" key={item.key}>
+            <label>Produk<select aria-label="Produk transaksi" value={item.product_id} onChange={(event) => setEditItems((current) => current.map((line) => line.key === item.key ? { ...line, product_id: event.target.value, product_name: editProducts.find((product) => product.id === event.target.value)?.name ?? line.product_name, product_active: true } : line))}><option value={item.product_id}>{item.product_name}{!item.product_active ? ' (nonaktif)' : ''}</option>{choices.filter((product) => product.id !== item.product_id).map((product) => <option key={product.id} value={product.id}>{product.sku} · {product.name}</option>)}</select></label>
+            <label>Jumlah<input aria-label="Jumlah produk" type="number" min="1" step="1" value={item.quantity} onChange={(event) => setEditItems((current) => current.map((line) => line.key === item.key ? { ...line, quantity: event.target.value } : line))} /></label>
+            <label>Harga satuan<input aria-label="Harga satuan" type="number" min="0.01" step="0.01" value={item.unit_price} onChange={(event) => setEditItems((current) => current.map((line) => line.key === item.key ? { ...line, unit_price: event.target.value } : line))} /></label>
+            <strong className="sale-edit-line-total">{formatCurrency((Number(item.quantity) || 0) * Math.round((Number(item.unit_price) || 0) * 100) / 100)}</strong>
+            <button type="button" className="text-button danger" aria-label={`Hapus ${item.product_name || 'produk'} dari transaksi`} onClick={() => setEditItems((current) => current.filter((line) => line.key !== item.key))}>Hapus</button>
+          </div>
+        })}
+        {productsError && <div className="sale-edit-product-error"><p className="form-error" role="alert">{productsError}</p><button type="button" className="button button-secondary" onClick={() => { setProductsError(''); setProductsLoading(true); setProductRefreshKey((current) => current + 1) }}>Coba muat produk lagi</button></div>}
+        <button type="button" className="button button-secondary sale-edit-add" disabled={productsLoading || !availableProducts.length} onClick={addEditItem}>{productsLoading ? 'Memuat produk...' : availableProducts.length ? 'Tambah produk' : 'Tidak ada produk aktif lain'}</button>
+      </div>
+      <div className="sale-edit-payment">
+        <div className="sale-edit-totals"><span>Subtotal baru<strong>{formatCurrency(editSubtotal)}</strong></span><span>Diskon tetap<strong>{formatCurrency(Number(editingSale.discount))}</strong></span><span>Total transaksi<strong>{formatCurrency(editTotal)}</strong></span><span>Kembalian<strong>{formatCurrency(editChange)}</strong></span></div>
+        <div className="two-col">
+          <label>Metode pembayaran<select value={editMethod} onChange={(event) => setEditMethod(event.target.value as PaymentMethod)}>{editPaymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label>Uang diterima<input type="number" min={editTotal} step="0.01" value={editPaidAmount} onChange={(event) => setEditPaidAmount(event.target.value)} /></label>
+        </div>
+        <p className="sale-edit-note">Koreksi jumlah uang diterima sesuai pembayaran sebenarnya. Stok dan kembalian akan dihitung ulang saat perubahan disimpan.</p>
+      </div>
+      {editError && <p className="form-error" role="alert">{editError}</p>}
+      {editConflict && <button type="button" className="button button-secondary sale-edit-reload" onClick={() => { closeEditor(); setRefreshKey((current) => current + 1) }}>Tutup dan muat data terbaru</button>}
+      <div className="inline-actions sale-edit-actions"><button type="button" className="button button-secondary" disabled={saving} onClick={closeEditor}>Batal</button><button type="submit" className="button button-primary" disabled={saving || !editItems.length}>{saving ? 'Menyimpan...' : 'Simpan perubahan'}</button></div>
+    </form></div>}
+  </>
 }
 
 function PurchasesView({ profile, locations }: { profile: Profile; locations: Array<{ id: string; name: string }> }) {
