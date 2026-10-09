@@ -1274,10 +1274,10 @@ select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2p
 .sale-history-pagination > div { display: flex; gap: 8px; }
 .sale-history-pagination .button, .sale-history-panel .text-button { min-height: 44px; }
 .sale-edit-backdrop { z-index: 60; padding: 16px; }
-.sale-edit-dialog { width: min(100%, 760px); max-height: min(900px, calc(100dvh - 32px)); overflow: auto; align-content: start; color: var(--retro-ink); }
-.sale-edit-dialog > .panel-heading { align-items: center; }
+.operation-dialog .sale-edit-dialog { width: min(1120px, calc(100vw - 32px)); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow: auto; overflow-x: hidden; overscroll-behavior: contain; align-content: start; color: var(--retro-ink); }
+.operation-dialog .sale-edit-dialog > .panel-heading { position: sticky; z-index: 2; top: -22px; align-items: center; margin: -22px -22px 0; padding: 16px 22px 12px; border-bottom: var(--retro-line); background: var(--retro-white); }
 .sale-edit-dialog > .panel-heading h2, .sale-edit-dialog > .panel-heading p { margin: 0; }
-.sale-edit-close { min-width: 44px; min-height: 44px; color: var(--retro-ink); font-size: 24px; }
+.sale-edit-close { flex: 0 0 44px; min-width: 44px; min-height: 44px; color: var(--retro-ink); font-size: 24px; }
 .sale-edit-lines { display: grid; gap: 10px; }
 .sale-edit-line { display: grid; grid-template-columns: minmax(190px, 2fr) minmax(76px, .6fr) minmax(130px, 1fr) minmax(100px, .8fr) auto; align-items: end; gap: 10px; padding: 12px; border: var(--retro-line); background: var(--retro-paper); }
 .sale-edit-line label, .sale-edit-payment label { display: grid; min-width: 0; gap: 6px; color: var(--retro-ink); font-size: 11px; font-weight: 700; }
@@ -1296,8 +1296,15 @@ select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2p
 .sale-edit-payment .two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .sale-edit-note { margin: 0; color: var(--retro-ink); font-size: 11px; line-height: 1.5; }
 .sale-edit-reload { min-height: 44px; justify-self: start; }
-.sale-edit-actions { justify-content: flex-end; }
+.sale-edit-actions { position: sticky; z-index: 2; bottom: -22px; justify-content: flex-end; margin: 0 -22px -22px; padding: 12px 22px 16px; border-top: var(--retro-line); background: var(--retro-white); }
 .sale-edit-actions .button { min-height: 44px; }
+
+@media (max-width: 960px) {
+  .sale-edit-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .sale-edit-line label:first-child { grid-column: 1 / -1; }
+  .sale-edit-line-total { justify-content: flex-end; }
+  .sale-edit-line .text-button { justify-self: end; }
+}
 
 @media (max-width: 780px) {
   .sale-history-panel > .panel-heading { display: grid; gap: 12px; }
@@ -1309,12 +1316,11 @@ select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2p
   .sale-history-table td[data-label="Produk dan jumlah"] { grid-column: 1 / -1; }
   .sale-history-table td[data-label="Aksi"] { min-height: 48px; }
   .sale-history-panel .text-button { align-self: flex-start; }
-  .sale-edit-backdrop { place-items: end center; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); }
-  .sale-edit-dialog { width: 100%; max-height: calc(100dvh - 16px - env(safe-area-inset-bottom)); padding: 16px; gap: 12px; }
-  .sale-edit-line { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; padding: 10px; }
-  .sale-edit-line label:first-child { grid-column: 1 / -1; }
-  .sale-edit-line-total { justify-content: flex-end; }
-  .sale-edit-line .text-button { justify-self: end; }
+  .sale-edit-backdrop { place-items: center; padding: max(4px, env(safe-area-inset-top)) 4px max(4px, env(safe-area-inset-bottom)); }
+  .operation-dialog .sale-edit-dialog { width: calc(100vw - 8px); max-height: calc(100vh - 8px); max-height: calc(100dvh - max(8px, env(safe-area-inset-top) + env(safe-area-inset-bottom))); padding: 16px; gap: 12px; }
+  .operation-dialog .sale-edit-dialog > .panel-heading { top: -16px; margin: -16px -16px 0; padding: 12px 16px; }
+  .sale-edit-line { gap: 9px; padding: 10px; }
+  .sale-edit-actions { bottom: -16px; margin: 0 -16px -16px; padding: 10px 16px max(12px, env(safe-area-inset-bottom)); }
   .sale-edit-totals { grid-template-columns: 1fr; }
   .sale-edit-payment .two-col { grid-template-columns: 1fr; }
   .sale-edit-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
