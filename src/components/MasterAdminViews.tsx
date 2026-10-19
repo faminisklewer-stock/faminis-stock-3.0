@@ -45,12 +45,123 @@ export function MasterCategoriesView() {
   return <AdminPage eyebrow="MASTER DATA" title="Kategori" subtitle="Kelola kategori produk untuk seluruh katalog."><div className="operation-grid"><form className="panel operation-form" onSubmit={save}><div className="panel-heading"><div><h2>Tambah kategori</h2><p>Nama kategori harus unik.</p></div><Tags size={20} /></div><label>Nama kategori<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Mukena" required /></label>{error && <p className="form-error">{error}</p>}{message && <p className="form-success">{message}</p>}<button className="button button-primary" type="submit"><Plus size={16} /> Tambah kategori</button></form><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar kategori</h2><p>{categories.length} kategori</p></div></div><div className="table-wrap"><table><thead><tr><th>Nama</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{categories.map((category) => <tr key={category.id}><td><strong>{category.name}</strong></td><td><span className={category.active ? 'status positive' : 'status negative'}>{category.active ? 'Aktif' : 'Nonaktif'}</span></td><td><button className="text-button" type="button" onClick={() => void toggle(category)}>{category.active ? 'Nonaktifkan' : 'Aktifkan'}</button></td></tr>)}</tbody></table>{!categories.length && <div className="empty-state">Belum ada kategori.</div>}</div></div></div></AdminPage>
 }
 
-export function MasterLocationsView() {
+export function MasterLocationsView({ onLocationRenamed }: { onLocationRenamed?: (locationId: string, name: string) => void }) {
   const [locations, setLocations] = useState<LocationRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  useEffect(() => { if (!supabase) { setLoading(false); return }; void supabase.from('locations').select('id, code, name, kind, active').order('name').then(({ data, error: loadError }) => { if (loadError) setError('Lokasi tidak dapat dimuat.'); else setLocations((data ?? []) as LocationRecord[]); setLoading(false) }) }, [])
-  return <AdminPage eyebrow="MASTER DATA" title="Lokasi" subtitle="Daftar lokasi aktif yang digunakan dalam operasional."><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar lokasi</h2><p>{locations.length} lokasi</p></div><MapPin size={20} /></div>{loading ? <div className="empty-state">Memuat lokasi...</div> : error ? <div className="data-error">{error}</div> : <div className="table-wrap"><table><thead><tr><th>Kode</th><th>Nama</th><th>Jenis</th><th>Status</th></tr></thead><tbody>{locations.map((location) => <tr key={location.id}><td><strong>{location.code}</strong></td><td>{location.name}</td><td>{location.kind === 'STORE' ? 'Toko' : location.kind === 'WAREHOUSE' ? 'Gudang' : 'Operasional'}</td><td><span className={location.active ? 'status positive' : 'status negative'}>{location.active ? 'Aktif' : 'Nonaktif'}</span></td></tr>)}</tbody></table>{!locations.length && <div className="empty-state">Belum ada lokasi.</div>}</div>}</div></AdminPage>
+  const [loading, setLoading] = useState(Boolean(supabase))
+  const [error, setError] = useState(supabase ? '' : 'Koneksi Supabase belum tersedia, lokasi tidak dapat dimuat.')
+  const [actionError, setActionError] = useState('')
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [savingLocationId, setSavingLocationId] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+
+  const loadLocations = useCallback(async () => {
+    if (!supabase) return { locations: [] as LocationRecord[], error: 'Koneksi Supabase belum tersedia, lokasi tidak dapat dimuat.' }
+    try {
+      const { data, error: loadError } = await supabase.from('locations').select('id, code, name, kind, active').order('name')
+      if (loadError) return { locations: [] as LocationRecord[], error: `Lokasi tidak dapat dimuat: ${loadError.message}` }
+      return { locations: (data ?? []) as LocationRecord[], error: '' }
+    } catch (loadError) {
+      return { locations: [] as LocationRecord[], error: `Lokasi tidak dapat dimuat: ${loadError instanceof Error ? loadError.message : 'koneksi gagal.'}` }
+    }
+  }, [])
+
+  const applyLocationLoad = useCallback((result: Awaited<ReturnType<typeof loadLocations>>) => {
+    if (result.error) setError(result.error)
+    else setLocations(result.locations)
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+    void loadLocations().then((result) => { if (mounted) applyLocationLoad(result) })
+    return () => { mounted = false }
+  }, [applyLocationLoad, loadLocations])
+
+  function retryLoadLocations() {
+    setError('')
+    setLoading(true)
+    void loadLocations().then(applyLocationLoad)
+  }
+
+  function startEditing(location: LocationRecord) {
+    setEditingLocationId(location.id)
+    setDraftName(location.name)
+    setActionError('')
+    setMessage('')
+  }
+
+  function stopEditing() {
+    setEditingLocationId(null)
+    setDraftName('')
+    setActionError('')
+  }
+
+  async function saveLocationName(event: FormEvent<HTMLFormElement>, location: LocationRecord) {
+    event.preventDefault()
+    if (!supabase || savingLocationId) return
+    const name = draftName.trim().replace(/\s+/g, ' ')
+    if (!name || name.length > 100) {
+      setActionError('Nama lokasi wajib diisi dan maksimal 100 karakter.')
+      return
+    }
+    if (name === location.name) {
+      stopEditing()
+      return
+    }
+
+    setSavingLocationId(location.id)
+    setActionError('')
+    setMessage('')
+    let renameError: string | null = null
+    try {
+      const { error: rpcError } = await supabase.rpc('rename_store_location', {
+        p_location_id: location.id,
+        p_name: name,
+      })
+      renameError = rpcError?.message ?? null
+    } catch (saveError) {
+      renameError = saveError instanceof Error ? saveError.message : 'Koneksi gagal saat mengubah nama lokasi.'
+    } finally {
+      setSavingLocationId(null)
+    }
+
+    if (renameError) {
+      const knownErrors: Record<string, string> = {
+        PERMISSION_DENIED: 'Hanya MASTER yang dapat mengubah nama ruko.',
+        INVALID_LOCATION: 'Lokasi yang dipilih tidak valid.',
+        LOCATION_NOT_FOUND: 'Lokasi tidak ditemukan. Muat ulang daftar lalu coba lagi.',
+        NOT_A_STORE_LOCATION: 'Nama hanya dapat diubah untuk lokasi ruko.',
+        INVALID_LOCATION_NAME: 'Nama lokasi wajib diisi dan maksimal 100 karakter.',
+        DUPLICATE_LOCATION_NAME: 'Nama tersebut sudah digunakan oleh lokasi lain.',
+      }
+      const knownError = Object.entries(knownErrors).find(([code]) => renameError?.includes(code))?.[1]
+      setActionError(knownError ?? `Nama lokasi gagal diubah: ${renameError}`)
+      return
+    }
+
+    const oldName = location.name
+    setLocations((current) => current
+      .map((item) => item.id === location.id ? { ...item, name } : item)
+      .sort((left, right) => left.name.localeCompare(right.name)))
+    onLocationRenamed?.(location.id, name)
+    setEditingLocationId(null)
+    setDraftName('')
+    setMessage(`Nama ${oldName} berhasil diubah menjadi ${name}.`)
+    window.dispatchEvent(new Event('faminis:data-changed'))
+  }
+
+  return <AdminPage eyebrow="MASTER DATA" title="Lokasi" subtitle="Nama ruko yang diubah akan digunakan pada seluruh tampilan dan laporan."><div className="panel table-panel"><div className="panel-heading"><div><h2>Daftar lokasi</h2><p>{locations.length} lokasi</p></div><MapPin size={20} /></div>{message && <p className="form-success" role="status">{message}</p>}{actionError && <p className="form-error" role="alert">{actionError}</p>}{error && <div className="data-error" role="alert">{error}{!loading && supabase && <button type="button" className="text-button" onClick={retryLoadLocations}>Coba lagi</button>}</div>}{loading ? <div className="empty-state" role="status">Memuat lokasi...</div> : !error && <div className="table-wrap"><table><thead><tr><th>Kode</th><th>Nama</th><th>Jenis</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{locations.map((location) => {
+    const isEditing = editingLocationId === location.id
+    const isSaving = savingLocationId === location.id
+    return <tr key={location.id}>
+      <td><strong>{location.code}</strong></td>
+      <td>{isEditing ? <form className="location-rename-form" onSubmit={(event) => void saveLocationName(event, location)}><input autoFocus aria-label={`Nama baru untuk ${location.name}`} value={draftName} maxLength={100} onChange={(event) => setDraftName(event.target.value)} disabled={isSaving} required /><button className="button button-primary" type="submit" disabled={isSaving}>{isSaving ? 'Menyimpan...' : 'Simpan'}</button></form> : location.name}</td>
+      <td>{location.kind === 'STORE' ? 'Toko' : location.kind === 'WAREHOUSE' ? 'Gudang' : 'Operasional'}</td>
+      <td><span className={location.active ? 'status positive' : 'status negative'}>{location.active ? 'Aktif' : 'Nonaktif'}</span></td>
+      <td>{location.kind === 'STORE' && (isEditing ? <button className="button button-secondary" type="button" onClick={stopEditing} disabled={isSaving}>Batal</button> : <button className="text-button" type="button" onClick={() => startEditing(location)} disabled={Boolean(savingLocationId)}>Ubah nama</button>)}</td>
+    </tr>
+  })}</tbody></table>{!locations.length && <div className="empty-state">Belum ada lokasi di database.</div>}</div>}</div></AdminPage>
 }
 
 export function MasterAuditLogsView() {

@@ -16,6 +16,10 @@ Role diberikan administrator melalui `profiles`:
 
 Setiap user operasional hanya boleh memiliki satu lokasi aktif.
 
+MASTER dapat mengubah nama lokasi ruko dari menu Lokasi. Perubahan memakai ID lokasi
+yang sama, sehingga stok, transaksi lama, transfer, audit, dan ekspor laporan memakai
+nama terbaru tanpa mengubah histori operasionalnya.
+
 ## Produk dan stok
 
 Produk terpusat di `products`. Stok dipisahkan berdasarkan kombinasi `product_id` dan `location_id`. Jangan membuat salinan produk per ruko.

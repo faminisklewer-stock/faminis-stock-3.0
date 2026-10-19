@@ -1265,6 +1265,8 @@ select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2p
 .reset-confirmation-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 
 .sale-history-panel { margin-top: 18px; }
+.location-rename-form { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
+.location-rename-form input { width: min(100%, 280px); min-width: 0; min-height: 44px; padding: 8px 10px; }
 .sale-history-panel > .panel-heading { align-items: flex-end; gap: 16px; }
 .sale-history-panel > .panel-heading > div { min-width: 0; }
 .sale-history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }

@@ -59,6 +59,7 @@ do $$
 declare
   edit_sale_signature text := 'public.edit_sale(uuid,timestamp with time zone,jsonb,public.payment_method,numeric)';
   cancel_sale_signature text := 'public.cancel_sale(uuid)';
+  rename_store_location_signature text := 'public.rename_store_location(uuid,text)';
 begin
   if to_regprocedure(edit_sale_signature) is null then
     raise exception 'MISSING_EDIT_SALE_RPC';
@@ -85,6 +86,15 @@ begin
       and column_name = 'cancelled_at'
   ) then
     raise exception 'MISSING_TRANSACTION_CANCELLED_AT';
+  end if;
+  if to_regprocedure(rename_store_location_signature) is null then
+    raise exception 'MISSING_RENAME_STORE_LOCATION_RPC';
+  end if;
+  if has_function_privilege('anon', rename_store_location_signature, 'execute') then
+    raise exception 'ANON_CAN_RENAME_STORE_LOCATIONS';
+  end if;
+  if not has_function_privilege('authenticated', rename_store_location_signature, 'execute') then
+    raise exception 'AUTHENTICATED_CANNOT_RENAME_STORE_LOCATIONS';
   end if;
 end $$;
 
@@ -144,3 +154,6 @@ where received_quantity is not null
 --     returned by product to the transaction location, RETURN movements and audit rows
 --     are written, a second cancellation is rejected, cancelled sales cannot be edited,
 --     and cancelled transactions are excluded from sales totals and exports.
+-- 12. Verify only MASTER can rename STORE locations; reject blank, overlong, duplicate,
+--     unknown, and non-STORE names. Confirm the location id stays unchanged and that
+--     dashboard, transaction, stock, transfer, CSV, and PDF labels use the renamed name.
