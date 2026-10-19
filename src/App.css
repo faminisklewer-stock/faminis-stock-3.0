@@ -990,14 +990,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 html, body, #root { background: var(--surface); color: var(--ink); }
 body { font-family: 'DM Sans', 'Segoe UI', sans-serif; }
 .app-shell { background: var(--surface); }
-.sidebar { width: 276px; flex-basis: 276px; gap: 18px; padding: 18px 16px 16px; border-right: var(--line); background: var(--paper); }
+.sidebar { position: sticky; top: 0; width: 276px; height: 100vh; height: 100dvh; min-height: 0; flex-basis: 276px; align-self: flex-start; gap: 18px; overflow: hidden; padding: 18px 16px 16px; border-right: var(--line); background: var(--paper); }
 .brand { padding: 0 8px 4px; color: var(--ink); font-family: 'DM Sans', sans-serif; font-size: 25px; font-weight: 900; letter-spacing: -1.8px; }
 .brand-mark { width: 38px; height: 38px; border: var(--line); border-radius: 50%; background: var(--yellow); color: var(--ink); font-family: 'DM Sans', sans-serif; font-size: 22px; box-shadow: 3px 3px 0 var(--ink); }
 .brand-dot { color: var(--coral); }
 .workspace-switcher { margin: 0; padding: 12px; border: var(--line); border-radius: 0; background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); }
 .workspace-icon { border: 1px solid var(--ink); border-radius: 0; background: var(--paper); color: var(--ink); }
 .workspace-switcher strong, .workspace-switcher small, .profile-row strong, .profile-row small { color: var(--ink); }
-.main-nav { display: grid; gap: 5px; }
+.main-nav { display: grid; min-height: 0; flex: 1 1 auto; gap: 5px; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--ink) var(--paper); scrollbar-width: thin; }
 .nav-label { margin: 2px 0 7px; padding: 0 8px; color: #59615d; font-size: 10px; letter-spacing: 1.2px; }
 .nav-label-spaced { margin-top: 16px; }
 .nav-item { min-height: 44px; padding: 9px 10px; border: 1px solid transparent; border-radius: 0; color: #4e5752; font-size: 13px; font-weight: 700; }
@@ -1008,8 +1008,13 @@ body { font-family: 'DM Sans', 'Segoe UI', sans-serif; }
 .profile-row { min-height: 52px; padding: 12px 4px 0; border-top: var(--line); }
 .avatar, .top-avatar { border: 1px solid var(--ink); border-radius: 50%; }
 .avatar-brown { background: var(--coral); color: var(--ink); }
-.sidebar-bottom { display: grid; gap: 10px; }
+.sidebar-bottom { display: grid; flex: 0 0 auto; gap: 10px; margin-top: 0; }
 .sidebar-bottom .sync-card { margin: 0; }
+
+@media (min-width: 781px) {
+  .app-shell > .sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; min-height: 0; align-self: flex-start; overflow: hidden; }
+  .app-shell > .sidebar > .main-nav { flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+}
 
 .main-content { background: var(--surface); }
 .topbar { height: 74px; padding: 0 36px; border-bottom: var(--line); background: var(--surface); }
