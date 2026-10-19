@@ -1267,6 +1267,7 @@ select:focus-visible { outline: 3px solid var(--yellow-deep); outline-offset: 2p
 .sale-history-panel { margin-top: 18px; }
 .sale-history-panel > .panel-heading { align-items: flex-end; gap: 16px; }
 .sale-history-panel > .panel-heading > div { min-width: 0; }
+.sale-history-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .sale-history-search { display: grid; min-width: 220px; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
 .sale-history-search input { width: 100%; min-height: 42px; padding: 8px 10px; border: var(--retro-line); border-radius: 8px; background: var(--retro-white); color: var(--retro-ink); }
 .sale-history-search input:focus { outline: 3px solid var(--retro-blue); outline-offset: 2px; }

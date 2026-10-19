@@ -20,7 +20,7 @@ Setiap user operasional hanya boleh memiliki satu lokasi aktif.
 
 Produk terpusat di `products`. Stok dipisahkan berdasarkan kombinasi `product_id` dan `location_id`. Jangan membuat salinan produk per ruko.
 
-Semua perubahan stok harus melalui penjualan, pembelian, transfer, atau adjustment yang menghasilkan `stock_movements`.
+Semua perubahan stok harus melalui penjualan, pembatalan, pembelian, transfer, atau adjustment yang menghasilkan `stock_movements`.
 
 ## Kasir
 
@@ -34,8 +34,12 @@ Hanya MASTER dan WAREHOUSE yang dapat mencatat penerimaan. Isi supplier, lokasi,
 
 ## Laporan
 
-Laporan mengambil transaksi dari Supabase dan harus dibaca sesuai lokasi user. Jangan menggunakan angka dashboard sebagai sumber pencatatan manual.
+Laporan mengambil transaksi dari Supabase dan harus dibaca sesuai lokasi user. Transaksi yang dibatalkan tetap ada di riwayat, tetapi tidak masuk hitungan penjualan atau omzet. Jangan menggunakan angka dashboard sebagai sumber pencatatan manual.
+
+## Pembatalan transaksi
+
+Hanya MASTER yang dapat membatalkan transaksi dari Riwayat Transaksi. Pembatalan menyimpan transaksi dan audit log, lalu mengembalikan jumlah setiap produk ke stok lokasi transaksi. Periksa status transaksi dan movement RETURN jika perlu menelusuri pembatalan.
 
 ## Keamanan akun
 
-Deaktivasi pegawai dengan `profiles.active = false`. Jangan menghapus histori transaksi, movement, transfer, atau audit log.
+Deaktivasi pegawai dengan `profiles.active = false`. Jangan menghapus histori transaksi, movement, transfer, atau audit log. Batalkan transaksi yang keliru, jangan menghapusnya permanen.

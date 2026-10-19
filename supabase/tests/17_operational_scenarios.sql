@@ -58,6 +58,7 @@ end $$;
 do $$
 declare
   edit_sale_signature text := 'public.edit_sale(uuid,timestamp with time zone,jsonb,public.payment_method,numeric)';
+  cancel_sale_signature text := 'public.cancel_sale(uuid)';
 begin
   if to_regprocedure(edit_sale_signature) is null then
     raise exception 'MISSING_EDIT_SALE_RPC';
@@ -67,6 +68,23 @@ begin
   end if;
   if not has_function_privilege('authenticated', edit_sale_signature, 'execute') then
     raise exception 'AUTHENTICATED_CANNOT_EDIT_SALES';
+  end if;
+  if to_regprocedure(cancel_sale_signature) is null then
+    raise exception 'MISSING_CANCEL_SALE_RPC';
+  end if;
+  if has_function_privilege('anon', cancel_sale_signature, 'execute') then
+    raise exception 'ANON_CAN_CANCEL_SALES';
+  end if;
+  if not has_function_privilege('authenticated', cancel_sale_signature, 'execute') then
+    raise exception 'AUTHENTICATED_CANNOT_CANCEL_SALES';
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'transactions'
+      and column_name = 'cancelled_at'
+  ) then
+    raise exception 'MISSING_TRANSACTION_CANCELLED_AT';
   end if;
 end $$;
 
@@ -122,3 +140,7 @@ where received_quantity is not null
 -- 10. Verify only MASTER can edit a sale; reject OWNER, WAREHOUSE, LIVE, and RUKO
 --     attempts. As MASTER, edit an old sale and verify items, stock, payment/change,
 --     audit metadata, and rejection of stale edits based on an older edited_at value.
+-- 11. Verify only MASTER can cancel a sale. Cancel old and new sales, verify stock is
+--     returned by product to the transaction location, RETURN movements and audit rows
+--     are written, a second cancellation is rejected, cancelled sales cannot be edited,
+--     and cancelled transactions are excluded from sales totals and exports.

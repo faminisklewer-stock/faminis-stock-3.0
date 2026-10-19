@@ -90,7 +90,7 @@ function getInitialActiveMenu(profile: Profile) {
 }
 
 type DashboardData = {
-  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; sale_type?: 'ECER' | 'GROSIR'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
+  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; cancelled_at?: string | null; sale_type?: 'ECER' | 'GROSIR'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
   transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
   products: Array<{ id: string; name: string; sku?: string; category_id?: string | null; active: boolean }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
@@ -118,6 +118,7 @@ type SaleHistoryRecord = {
   invoice_no: string
   location_id: string
   edited_at: string | null
+  cancelled_at: string | null
   subtotal: number
   discount: number
   grand_total: number
@@ -468,7 +469,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         purchaseItemsResult,
         settingsResult,
       ] = await Promise.allSettled([
-        client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').order('created_at', { ascending: false }).limit(100),
+        client.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, cancelled_at, sale_type, payments(method)').order('created_at', { ascending: false }).limit(100),
         client.from('transaction_items').select('transaction_id, product_id, quantity').order('transaction_id'),
         client.from('products').select('id, name, sku, category_id, active').order('name'),
         client.rpc('get_stock_report'),
@@ -548,7 +549,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     if (!supabase || !isMasterUser || active !== 'Ringkasan') return
     let mounted = true
     void Promise.all([
-      supabase.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, sale_type, payments(method)').gte('created_at', summaryPeriodStart).lt('created_at', summaryPeriodEnd).order('created_at', { ascending: false }),
+      supabase.from('transactions').select('id, invoice_no, location_id, grand_total, created_at, cancelled_at, sale_type, payments(method)').gte('created_at', summaryPeriodStart).lt('created_at', summaryPeriodEnd).order('created_at', { ascending: false }),
       supabase.from('stock_movements').select('id, movement_type, quantity, location_id, created_at').gte('created_at', summaryPeriodStart).lt('created_at', summaryPeriodEnd).order('created_at', { ascending: false }),
     ]).then(([transactionsResult, movementsResult]) => {
       if (!mounted) return
@@ -611,19 +612,20 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }, [profile.id, profile.location_id, profile.role])
 
   const locationId = dashboard.locations.find((item) => item.name === location)?.id
-  const visibleTransactions = summaryTransactions.filter((item) => !locationId || item.location_id === locationId)
+  const visibleTransactions = summaryTransactions.filter((item) => !item.cancelled_at && (!locationId || item.location_id === locationId))
   const activeProductIds = new Set(dashboard.products.filter((item) => item.active).map((item) => item.id))
   const activeLocationIds = new Set(dashboard.locations.map((item) => item.id))
   const visibleStock = dashboard.stock.filter((item) => activeProductIds.has(item.product_id) && activeLocationIds.has(item.location_id) && (!locationId || item.location_id === locationId))
   const visibleMovements = summaryMovements.filter((item) => !locationId || item.location_id === locationId)
   const revenue = visibleTransactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
-  const itemsSold = visibleMovements.filter((item) => item.movement_type === 'SALE').reduce((sum, item) => sum + Math.abs(item.quantity), 0)
+  const visibleTransactionIds = new Set(visibleTransactions.map((item) => item.id))
+  const itemsSold = dashboard.transactionItems.filter((item) => visibleTransactionIds.has(item.transaction_id)).reduce((sum, item) => sum + Number(item.quantity), 0)
   const lowStock = new Set(visibleStock.filter((item) => item.quantity <= dashboard.lowStockThreshold).map((item) => `${item.product_id}:${item.location_id}`)).size
   const overviewLocations = [{ id: 'all', name: 'Semua lokasi' }, ...dashboard.locations]
   const locationRevenue = overviewLocations
     .filter((item) => item.id !== 'all')
     .map((item) => {
-      const total = summaryTransactions.filter((entry) => entry.location_id === item.id && (!locationId || entry.location_id === locationId)).reduce((sum, entry) => sum + Number(entry.grand_total), 0)
+      const total = summaryTransactions.filter((entry) => !entry.cancelled_at && entry.location_id === item.id && (!locationId || entry.location_id === locationId)).reduce((sum, entry) => sum + Number(entry.grand_total), 0)
       return { ...item, total }
     })
     .sort((left, right) => right.total - left.total)
@@ -696,7 +698,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       return (exportFilter.startTime === null || timestamp >= exportFilter.startTime) && (exportFilter.endTime === null || timestamp <= exportFilter.endTime)
     }
     const reportTransactions = (periodScoped ? summaryTransactions : dashboard.transactions)
-      .filter((item) => scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
+      .filter((item) => !item.cancelled_at && scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
     const productName = (productId: string) => dashboard.products.find((product) => product.id === productId)?.name ?? 'Produk'
     const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Tidak diketahui'
     const formatTransferId = (id: string) => id.replace(/-/g, '').slice(0, 8).toUpperCase()
@@ -2195,7 +2197,7 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     hasValidPeriod: hasValidExportPeriod,
   }
   const paymentMethodLabel = (method: string | null | undefined) => ({ CASH: 'Tunai', QRIS: 'QRIS', TRANSFER: 'Transfer', DEBIT: 'Debit', CREDIT: 'Kredit' }[method ?? ''] ?? 'Tidak diketahui')
-  const transactions = data.transactions.filter((item) => (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
+  const transactions = data.transactions.filter((item) => !item.cancelled_at && (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
   const soldQuantityByProduct = new Map<string, number>()
@@ -2291,8 +2293,11 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
   const [editError, setEditError] = useState('')
   const [editConflict, setEditConflict] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [cancellingSaleId, setCancellingSaleId] = useState<string | null>(null)
+  const [cancelError, setCancelError] = useState('')
   const [message, setMessage] = useState('')
   const editTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const historySearchRef = useRef<HTMLInputElement | null>(null)
   const editDialogRef = useRef<HTMLFormElement | null>(null)
   const client = supabase
   const requestKey = JSON.stringify([locationId, page, query, refreshKey])
@@ -2310,7 +2315,7 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
     let mounted = true
     async function loadHistory() {
       let request = activeClient.from('transactions')
-        .select('id, invoice_no, location_id, edited_at, subtotal, discount, grand_total, created_at, transaction_items(product_id, quantity, unit_price, products(name, sku, active)), payments(method, paid_amount, change_amount)', { count: 'exact' })
+        .select('id, invoice_no, location_id, edited_at, cancelled_at, subtotal, discount, grand_total, created_at, transaction_items(product_id, quantity, unit_price, products(name, sku, active)), payments(method, paid_amount, change_amount)', { count: 'exact' })
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
       if (locationId !== 'all') request = request.eq('location_id', locationId)
@@ -2520,6 +2525,43 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
     window.requestAnimationFrame(() => editTriggerRef.current?.focus())
   }
 
+  async function cancelSale(sale: SaleHistoryRecord) {
+    if (!client || !canEdit || sale.cancelled_at || cancellingSaleId) return
+    if (!window.confirm(`Batalkan transaksi ${sale.invoice_no}? Stok produk akan dikembalikan ke lokasi transaksi.`)) return
+
+    setCancellingSaleId(sale.id)
+    setCancelError('')
+    setMessage('')
+    let rpcError: string | null = null
+    try {
+      const { error } = await client.rpc('cancel_sale', { p_transaction_id: sale.id })
+      rpcError = error?.message ?? null
+    } catch (error) {
+      rpcError = error instanceof Error ? error.message : 'Koneksi gagal saat membatalkan transaksi.'
+    } finally {
+      setCancellingSaleId(null)
+    }
+
+    if (rpcError) {
+      const knownErrors: Record<string, string> = {
+        PERMISSION_DENIED: 'Hanya MASTER yang dapat membatalkan transaksi.',
+        TRANSACTION_NOT_FOUND: 'Transaksi tidak ditemukan. Muat ulang riwayat lalu coba lagi.',
+        SALE_ALREADY_CANCELLED: 'Transaksi ini sudah dibatalkan oleh pengguna lain.',
+        TRANSACTION_ITEMS_NOT_FOUND: 'Rincian produk transaksi tidak tersedia, stok tidak dapat dikembalikan.',
+        TRANSACTION_CANCELLED: 'Transaksi yang sudah dibatalkan tidak dapat diedit.',
+        STOCK_QUANTITY_OVERFLOW: 'Jumlah stok melewati batas yang dapat disimpan. Transaksi tidak dibatalkan.',
+      }
+      const knownError = Object.entries(knownErrors).find(([code]) => rpcError.includes(code))?.[1]
+      setCancelError(knownError ?? `Transaksi gagal dibatalkan: ${rpcError}`)
+      return
+    }
+
+    setMessage(`Transaksi ${sale.invoice_no} dibatalkan. Stok sudah dikembalikan.`)
+    historySearchRef.current?.focus()
+    setRefreshKey((current) => current + 1)
+    window.dispatchEvent(new Event('faminis:data-changed'))
+  }
+
   const pageCount = Math.ceil(totalRows / pageSize)
   const availableProducts = editProducts.filter((product) => !editItems.some((item) => item.product_id === product.id))
   const editPaymentOptions: Array<{ value: PaymentMethod; label: string }> = [
@@ -2534,13 +2576,14 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
     <div className="panel table-panel sale-history-panel">
       <div className="panel-heading">
         <div><h2>Riwayat transaksi</h2><p>Semua transaksi, termasuk catatan lama. Cari nomor invoice bila perlu.</p></div>
-        <label className="sale-history-search">Cari invoice<input type="search" value={query} onChange={(event) => { setLoadError(''); setQuery(event.target.value); setPage(0) }} placeholder="Nomor invoice" /></label>
+        <label className="sale-history-search">Cari invoice<input ref={historySearchRef} type="search" value={query} onChange={(event) => { setLoadError(''); setQuery(event.target.value); setPage(0) }} placeholder="Nomor invoice" /></label>
       </div>
       {message && <div className="form-success operation-message" role="status">{message}</div>}
+      {cancelError && <div className="data-error" role="alert">{cancelError}</div>}
       {visibleLoadError && <div className="data-error" role="alert">{visibleLoadError}{client && <button className="text-button" type="button" onClick={() => { setLoadError(''); setRefreshKey((current) => current + 1) }}>Coba lagi</button>}</div>}
       {loading ? <div className="empty-state" role="status">Memuat riwayat transaksi...</div> : <div className="table-wrap sale-history-table-wrap">
         <table className="sale-history-table">
-          <thead><tr><th>Invoice</th><th>Produk dan jumlah</th><th>Lokasi</th><th>Total</th><th>Tanggal</th>{canEdit && <th>Aksi</th>}</tr></thead>
+          <thead><tr><th>Invoice</th><th>Produk dan jumlah</th><th>Lokasi</th><th>Total</th><th>Tanggal</th><th>Status</th>{canEdit && <th>Aksi</th>}</tr></thead>
           <tbody>{rows.map((sale) => {
             const payment = paymentFor(sale)
             return <tr key={sale.id}>
@@ -2549,7 +2592,8 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
               <td data-label="Lokasi">{locations.find((location) => location.id === sale.location_id)?.name ?? 'Tidak diketahui'}</td>
               <td data-label="Total"><strong>{formatCurrency(Number(sale.grand_total))}</strong>{payment && <small className="table-subline">{payment.method === 'CASH' ? 'Tunai' : payment.method} · Dibayar {formatCurrency(Number(payment.paid_amount))}</small>}</td>
               <td data-label="Tanggal">{new Date(sale.created_at).toLocaleString('id-ID')}</td>
-              {canEdit && <td data-label="Aksi"><button type="button" className="text-button" disabled={!payment} title={!payment ? 'Data pembayaran transaksi tidak ditemukan.' : undefined} onClick={(event) => openEditor(sale, event.currentTarget)}>Edit transaksi</button></td>}
+              <td data-label="Status"><span className={`status ${sale.cancelled_at ? 'negative' : 'positive'}`}>{sale.cancelled_at ? 'Dibatalkan' : 'Selesai'}</span></td>
+              {canEdit && <td data-label="Aksi">{sale.cancelled_at ? <span className="muted-text">Tidak ada tindakan</span> : <div className="sale-history-actions"><button type="button" className="text-button" disabled={!payment || Boolean(cancellingSaleId)} title={!payment ? 'Data pembayaran transaksi tidak ditemukan.' : undefined} onClick={(event) => openEditor(sale, event.currentTarget)}>Edit transaksi</button><button type="button" className="text-button danger" disabled={Boolean(cancellingSaleId)} onClick={() => void cancelSale(sale)}>{cancellingSaleId === sale.id ? 'Membatalkan...' : 'Batalkan'}</button></div>}</td>}
             </tr>
           })}</tbody>
         </table>
