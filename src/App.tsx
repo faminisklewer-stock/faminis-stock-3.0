@@ -141,6 +141,29 @@ function getSummaryPeriodRange(period: SummaryPeriod, referenceDate = new Date()
   return { start, end }
 }
 
+function getLocalDateInputValue(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getCreatedAtForLocalDate(value: string, targetDate: string) {
+  const date = new Date(value)
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(targetDate)
+  if (Number.isNaN(date.getTime()) || !match) return null
+  const [, yearText, monthText, dayText] = match
+  const year = Number(yearText)
+  const month = Number(monthText)
+  const day = Number(dayText)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  date.setFullYear(year, month - 1, day)
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null
+  return date.toISOString()
+}
+
 function getLowStockThreshold(value: unknown) {
   const settingValue = typeof value === 'object' && value !== null && 'value' in value ? value.value : value
   const threshold = Number(settingValue)
@@ -2290,6 +2313,7 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
   const [productRefreshKey, setProductRefreshKey] = useState(0)
   const [editMethod, setEditMethod] = useState<PaymentMethod>('CASH')
   const [editPaidAmount, setEditPaidAmount] = useState('')
+  const [editTransactionDate, setEditTransactionDate] = useState('')
   const [editError, setEditError] = useState('')
   const [editConflict, setEditConflict] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -2428,6 +2452,7 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
     setEditProducts([])
     setEditMethod(payment.method)
     setEditPaidAmount(String(payment.paid_amount))
+    setEditTransactionDate(getLocalDateInputValue(sale.created_at))
     setEditError('')
     setEditConflict(false)
     setProductsLoading(Boolean(client))
@@ -2484,16 +2509,22 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
       setEditError('Jumlah uang diterima tidak boleh kurang dari total transaksi.')
       return
     }
+    const updatedCreatedAt = getCreatedAtForLocalDate(editingSale.created_at, editTransactionDate)
+    if (!updatedCreatedAt) {
+      setEditError('Pilih tanggal transaksi yang valid.')
+      return
+    }
     setSaving(true)
     setEditError('')
     let rpcError: string | null = null
     try {
-      const { error } = await client.rpc('edit_sale', {
+      const { error } = await client.rpc('edit_sale_with_date', {
         p_transaction_id: editingSale.id,
         p_expected_edited_at: editingSale.edited_at,
         p_items: normalizedItems,
         p_method: editMethod,
         p_paid_amount: editPaidNumber,
+        p_created_at: updatedCreatedAt,
       })
       rpcError = error?.message ?? null
     } catch (error) {
@@ -2506,6 +2537,7 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
       const knownErrors: Record<string, string> = {
         INSUFFICIENT_STOCK: 'Stok tidak mencukupi untuk perubahan jumlah atau produk ini.',
         INSUFFICIENT_PAYMENT: 'Jumlah pembayaran kurang dari total transaksi.',
+        INVALID_TRANSACTION_DATE: 'Pilih tanggal transaksi yang valid.',
         PERMISSION_DENIED: 'Akun ini tidak memiliki izin untuk mengedit transaksi. Hanya MASTER yang dapat melakukan koreksi.',
         TRANSACTION_NOT_FOUND: 'Transaksi tidak ditemukan. Muat ulang riwayat lalu coba lagi.',
         PAYMENT_NOT_FOUND: 'Data pembayaran transaksi tidak ditemukan, perubahan tidak disimpan.',
@@ -2602,7 +2634,7 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
       {pageCount > 1 && <nav className="sale-history-pagination" aria-label="Halaman riwayat transaksi"><span>{page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalRows)} dari {formatNumber(totalRows)} transaksi</span><div><button type="button" className="button button-secondary" disabled={page === 0 || loading} onClick={() => setPage((current) => current - 1)}>Sebelumnya</button><button type="button" className="button button-secondary" disabled={page + 1 >= pageCount || loading} onClick={() => setPage((current) => current + 1)}>Berikutnya</button></div></nav>}
     </div>
     {editingSale && canEdit && <div className="operation-dialog sale-edit-backdrop" role="presentation"><form ref={editDialogRef} className="panel operation-form sale-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="sale-edit-title" onKeyDown={trapDialogFocus} onSubmit={(event) => void saveSaleEdit(event)}>
-      <div className="panel-heading"><div><h2 id="sale-edit-title">Edit transaksi</h2><p>{editingSale.invoice_no} · {new Date(editingSale.created_at).toLocaleString('id-ID')}</p></div><button type="button" className="more-button sale-edit-close" aria-label="Tutup editor" disabled={saving} onClick={closeEditor}>×</button></div>
+      <div className="panel-heading"><div><h2 id="sale-edit-title">Edit transaksi</h2><p>{editingSale.invoice_no}</p></div><button type="button" className="more-button sale-edit-close" aria-label="Tutup editor" disabled={saving} onClick={closeEditor}>×</button></div>
       <div className="sale-edit-lines">
         {editItems.map((item) => {
           const choices = editProducts.filter((product) => product.id === item.product_id || !editItems.some((other) => other.key !== item.key && other.product_id === product.id))
@@ -2618,12 +2650,13 @@ function SalesHistoryPanel({ profile, locations, locationId, products }: { profi
         <button type="button" className="button button-secondary sale-edit-add" disabled={productsLoading || !availableProducts.length} onClick={addEditItem}>{productsLoading ? 'Memuat produk...' : availableProducts.length ? 'Tambah produk' : 'Tidak ada produk aktif lain'}</button>
       </div>
       <div className="sale-edit-payment">
+        <label className="sale-edit-date">Tanggal transaksi<input type="date" required value={editTransactionDate} onChange={(event) => setEditTransactionDate(event.target.value)} /></label>
         <div className="sale-edit-totals"><span>Subtotal baru<strong>{formatCurrency(editSubtotal)}</strong></span><span>Diskon tetap<strong>{formatCurrency(Number(editingSale.discount))}</strong></span><span>Total transaksi<strong>{formatCurrency(editTotal)}</strong></span><span>Kembalian<strong>{formatCurrency(editChange)}</strong></span></div>
         <div className="two-col">
           <label>Metode pembayaran<select value={editMethod} onChange={(event) => setEditMethod(event.target.value as PaymentMethod)}>{editPaymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label>Uang diterima<input type="number" min={editTotal} step="0.01" value={editPaidAmount} onChange={(event) => setEditPaidAmount(event.target.value)} /></label>
         </div>
-        <p className="sale-edit-note">Koreksi jumlah uang diterima sesuai pembayaran sebenarnya. Stok dan kembalian akan dihitung ulang saat perubahan disimpan.</p>
+        <p className="sale-edit-note">Tanggal baru akan digunakan pada laporan transaksi. Jam transaksi tetap mengikuti waktu semula. Stok dan kembalian dihitung ulang saat perubahan disimpan.</p>
       </div>
       {editError && <p className="form-error" role="alert">{editError}</p>}
       {editConflict && <button type="button" className="button button-secondary sale-edit-reload" onClick={() => { closeEditor(); setRefreshKey((current) => current + 1) }}>Tutup dan muat data terbaru</button>}
