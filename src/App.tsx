@@ -103,6 +103,7 @@ type DashboardData = {
   lowStockThreshold: number
 }
 
+type ReportSalesSnapshot = Pick<DashboardData, 'transactions' | 'transactionItems'>
 type SummaryPeriod = 'daily' | 'weekly' | 'monthly'
 type ReportExportFilter = { periodLabel: string; startTime: number | null; endTime: number | null; locationIds: string[]; hasValidPeriod: boolean }
 type PaymentMethod = 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT'
@@ -702,7 +703,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
   }).join(' ')
   const chartFill = `${chartPoints} L660,190 L18,190 Z`
 
-  function getOperationalReportData(scope: 'all' | 'selected' = 'all', periodScoped = false, exportFilter?: ReportExportFilter) {
+  function getOperationalReportData(scope: 'all' | 'selected' = 'all', periodScoped = false, exportFilter?: ReportExportFilter, salesSnapshot?: ReportSalesSnapshot) {
     const allLocationIds = dashboard.locations.map((item) => item.id)
     const selectedScopeLocationIds = location === 'all'
       ? allLocationIds
@@ -720,15 +721,16 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
       const timestamp = new Date(createdAt).getTime()
       return (exportFilter.startTime === null || timestamp >= exportFilter.startTime) && (exportFilter.endTime === null || timestamp <= exportFilter.endTime)
     }
-    const reportTransactions = (periodScoped ? summaryTransactions : dashboard.transactions)
+    const reportTransactions = (periodScoped ? summaryTransactions : salesSnapshot?.transactions ?? dashboard.transactions)
       .filter((item) => !item.cancelled_at && scopeLocationIds.includes(item.location_id) && isInReportDateScope(item.created_at))
+    const reportTransactionItems = salesSnapshot?.transactionItems ?? dashboard.transactionItems
     const productName = (productId: string) => dashboard.products.find((product) => product.id === productId)?.name ?? 'Produk'
     const locationName = (locationId: string | null | undefined) => dashboard.locations.find((item) => item.id === locationId)?.name ?? 'Tidak diketahui'
     const formatTransferId = (id: string) => id.replace(/-/g, '').slice(0, 8).toUpperCase()
 
     const salesRows = reportTransactions
       .flatMap((item) => {
-        const details = dashboard.transactionItems.filter((entry) => entry.transaction_id === item.id)
+        const details = reportTransactionItems.filter((entry) => entry.transaction_id === item.id)
         if (!details.length) {
           return [{
             invoice_no: item.invoice_no,
@@ -843,14 +845,15 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     }
   }
 
-  function downloadCsvReport(scope: 'all' | 'selected' = 'all') {
+  function downloadCsvReport(scope: 'all' | 'selected' = 'all', exportFilter?: ReportExportFilter, salesSnapshot?: ReportSalesSnapshot) {
     const periodScoped = active === 'Ringkasan'
-    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped)
+    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped, exportFilter, salesSnapshot)
+    const periodLabel = periodScoped ? `${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}` : exportFilter?.periodLabel
     const csvData = [
       ['Laporan', 'Operasional Faminis'],
       ['Role user', report.summary.role],
       ['Batas lokasi', report.summary.locationScope],
-      ...(periodScoped ? [['Periode', `${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}`]] : []),
+      ...(periodLabel ? [['Periode', periodLabel]] : []),
       ['Total omzet', formatCurrency(report.summary.totalRevenue)],
       ['Jumlah transaksi', String(report.summary.totalTransactions)],
       ['Jumlah transfer', String(report.summary.totalTransfers)],
@@ -890,14 +893,14 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `laporan-operasional-${new Date().toISOString().slice(0, 10)}.csv`
+    anchor.download = `laporan-operasional-${exportFilter?.periodLabel ? exportFilter.periodLabel.replace(/[^0-9A-Za-z-]+/g, '-') : new Date().toISOString().slice(0, 10)}.csv`
     anchor.click()
     URL.revokeObjectURL(url)
   }
 
-  function downloadPdfReport(scope: 'all' | 'selected' = 'all', exportFilter?: ReportExportFilter) {
+  function downloadPdfReport(scope: 'all' | 'selected' = 'all', exportFilter?: ReportExportFilter, salesSnapshot?: ReportSalesSnapshot) {
     const periodScoped = active === 'Ringkasan'
-    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped, exportFilter)
+    const report = getOperationalReportData(periodScoped ? 'selected' : scope, periodScoped, exportFilter, salesSnapshot)
     const pdfPeriodLabel = periodScoped ? `${summaryPeriodLabels[summaryPeriod]} - ${summaryRangeLabel}` : exportFilter?.periodLabel
     const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [330.2, 215.9] })
     const pageWidth = document.internal.pageSize.getWidth()
@@ -974,7 +977,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
     addTable('Pembelian', ['Pemasok', 'Lokasi', 'Produk', 'Jumlah', 'Waktu'], report.purchaseRows.map((row) => [row.supplier, row.location, row.product_name, row.quantity, new Date(row.created_at).toLocaleString('id-ID')]), green)
     addTable('Stok per lokasi', ['Lokasi', 'Produk', 'Jumlah stok'], report.stockRows.map((row) => [row.location, row.product, row.quantity]), yellow)
     addTable('Pergerakan stok', ['Jenis', 'Lokasi', 'Jumlah', 'Waktu'], report.movementRows.map((row) => [row.movement_type, row.location, row.quantity, new Date(row.created_at).toLocaleString('id-ID')]), coral)
-    document.save(`laporan-operasional-${new Date().toISOString().slice(0, 10)}.pdf`)
+    document.save(`laporan-operasional-${exportFilter?.periodLabel ? exportFilter.periodLabel.replace(/[^0-9A-Za-z-]+/g, '-') : new Date().toISOString().slice(0, 10)}.pdf`)
     return
 
     const headerLabels: Record<string, string> = {
@@ -1384,7 +1387,7 @@ function Dashboard({ profile, onLogout }: { profile: Profile; onLogout: () => vo
         {transferAlert && <div className="transfer-alert" role="status"><div><strong>{transferAlert.title}</strong><p>{transferAlert.message}</p></div><button type="button" onClick={() => { setActive('Transfer'); setTransferAlert(null) }}>Buka transfer</button><button className="transfer-alert-close" type="button" aria-label="Tutup notifikasi transfer" onClick={() => setTransferAlert(null)}>×</button></div>}
         <header className="topbar"><div className="breadcrumb"><span>Ruang kerja</span><b>/</b><strong>{active}</strong></div><div className="top-actions"><div className="connection"><Wifi size={15} /><span>Online</span></div><button className="icon-button notification" aria-label="Notifikasi"><Bell size={19} /><i></i></button></div></header>
         <div className="page-content">
-          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Stok Awal' ? <MasterOpeningStocksView /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={() => downloadCsvReport('all')} onDownloadPdf={(exportFilter) => downloadPdfReport('all', exportFilter)} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView onLocationRenamed={(locationId, name) => setDashboard((current) => ({ ...current, locations: current.locations.map((item) => item.id === locationId ? { ...item, name } : item) }))} /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
+          {active === 'Kasir' ? <PosView profile={profile} locations={dashboard.locations} /> : active === 'Produk' ? <ProductsView profile={profile} /> : active === 'Kategori' ? <MasterCategoriesView /> : active === 'Stok' ? <StockView profile={profile} locations={dashboard.locations} /> : active === 'Stok Awal' ? <MasterOpeningStocksView /> : active === 'Adjustment' ? <MasterAdjustmentsView profile={profile} /> : active === 'Transfer' ? <TransfersView profile={profile} locations={dashboard.locations} /> : active === 'Laporan' ? <ReportsView data={dashboard} profile={profile} onDownloadCsv={(filter, snapshot) => downloadCsvReport('all', filter, snapshot)} onDownloadPdf={(filter, snapshot) => downloadPdfReport('all', filter, snapshot)} /> : active === 'Pembelian' ? <PurchasesView profile={profile} locations={dashboard.locations} /> : active === 'Lokasi' ? <MasterLocationsView onLocationRenamed={(locationId, name) => setDashboard((current) => ({ ...current, locations: current.locations.map((item) => item.id === locationId ? { ...item, name } : item) }))} /> : active === 'Audit Log' ? <MasterAuditLogsView /> : active === 'Pelanggan' ? <CustomersView profile={profile} /> : active === 'Akses tim' ? <TeamAccessView profile={profile} locations={dashboard.locations} /> : active === 'Pengaturan' ? <SettingsView profile={profile} /> : <>
           <section className="page-heading"><div><p className="eyebrow">{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p><h1>{pageTitle}</h1><p className="subtitle">Berikut kondisi usaha Anda hari ini.</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => downloadCsvReport('all')}><ArrowDownToLine size={16} /> Unduh CSV</button><button className="button button-secondary" onClick={() => downloadPdfReport('all')}><ArrowDownToLine size={16} /> Cetak PDF</button><button className="button button-primary" onClick={() => setActive('Kasir')}><Plus size={17} /> Buat transaksi</button></div></section>
           <section className="filter-bar"><div className="filter-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari produk atau transaksi..." /></div><div className="filter-divider"></div><label className="select-wrap"><span>Lokasi</span><select value={location} onChange={(event) => setLocation(event.target.value)}>{overviewLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>{summaryPeriodControl}<span className="date-chip">{summaryRangeLabel}</span></section>
           {dashboardState === 'error' && <div className="data-error">Data dashboard tidak dapat dimuat dari Supabase. Periksa policy RLS dan coba refresh.</div>}
@@ -2176,7 +2179,7 @@ function AccessRestricted({ title, message }: { title: string; message: string }
   return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">ACCESS CONTROL</p><h1>{title}</h1><p className="subtitle">{message}</p></div></div></section>
 }
 
-function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: DashboardData; profile: Profile; onDownloadCsv: () => void; onDownloadPdf: (exportFilter: ReportExportFilter) => void }) {
+function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: DashboardData; profile: Profile; onDownloadCsv: (exportFilter: ReportExportFilter, salesSnapshot: ReportSalesSnapshot) => void; onDownloadPdf: (exportFilter: ReportExportFilter, salesSnapshot: ReportSalesSnapshot) => void }) {
   const isOperationalUser = profile.role !== 'MASTER'
   const canSelectReportLocation = profile.role === 'MASTER' || profile.role === 'OWNER'
   const reportLocations = canSelectReportLocation ? data.locations : data.locations.filter((item) => item.id === profile.location_id)
@@ -2184,9 +2187,19 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const [location, setLocation] = useState(isOperationalUser ? profile.location_id ?? 'all' : 'all')
   const [reportMode, setReportMode] = useState<'penjualan' | 'transfer-masuk' | 'transfer-keluar' | 'stok'>('penjualan')
   const [reportPeriod, setReportPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
+  const [reportMonth, setReportMonth] = useState(() => {
+    const today = new Date()
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  })
   const [reportCustomFrom, setReportCustomFrom] = useState('')
   const [reportCustomTo, setReportCustomTo] = useState('')
   const [stockCategory, setStockCategory] = useState('all')
+  const [monthlySalesSnapshot, setMonthlySalesSnapshot] = useState<ReportSalesSnapshot | null>(null)
+  const [monthlyLoadState, setMonthlyLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [monthlyLoadedMonth, setMonthlyLoadedMonth] = useState('')
+  const [monthlyErrorMonth, setMonthlyErrorMonth] = useState('')
+  const [monthlyLoadError, setMonthlyLoadError] = useState('')
+  const [monthlyRefreshKey, setMonthlyRefreshKey] = useState(0)
   const locationName = (id: string) => data.locations.find((item) => item.id === id)?.name ?? 'Tidak diketahui'
   const now = new Date()
   const periodStart = new Date(now)
@@ -2198,20 +2211,93 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     periodStart.setDate(now.getDate() - dayFromMonday)
     periodStart.setHours(0, 0, 0, 0)
   } else if (reportPeriod === 'monthly') {
-    periodStart.setDate(1)
-    periodStart.setHours(0, 0, 0, 0)
+    const selectedMonth = new Date(`${reportMonth}-01T00:00:00`)
+    if (!Number.isNaN(selectedMonth.getTime())) {
+      periodStart.setTime(selectedMonth.getTime())
+      periodEnd = new Date(selectedMonth)
+      periodEnd.setMonth(periodEnd.getMonth() + 1)
+      periodEnd.setMilliseconds(periodEnd.getMilliseconds() - 1)
+    }
   } else if (reportCustomFrom && reportCustomTo) {
     periodStart.setTime(new Date(`${reportCustomFrom}T00:00:00`).getTime())
     periodEnd = new Date(`${reportCustomTo}T23:59:59.999`)
   }
+  useEffect(() => {
+    if (reportPeriod !== 'monthly' || reportMode !== 'penjualan') return
+    const client = supabase
+    const selectedMonth = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(reportMonth)
+    if (!client || !selectedMonth) {
+      setMonthlySalesSnapshot(null)
+      setMonthlyLoadedMonth('')
+      setMonthlyErrorMonth(reportMonth)
+      setMonthlyLoadError('Bulan laporan tidak valid atau koneksi laporan tidak tersedia.')
+      setMonthlyLoadState('error')
+      return
+    }
+    const activeClient = client
+    const start = new Date(Number(selectedMonth[1]), Number(selectedMonth[2]) - 1, 1)
+    const end = new Date(start)
+    end.setMonth(end.getMonth() + 1)
+    let mounted = true
+    setMonthlySalesSnapshot(null)
+    setMonthlyLoadedMonth('')
+    setMonthlyErrorMonth('')
+    setMonthlyLoadError('')
+    setMonthlyLoadState('loading')
+    async function loadMonthlySales() {
+      try {
+        const transactionResult = await fetchAllPages((from, to) => activeClient
+          .from('transactions')
+          .select('id, invoice_no, location_id, grand_total, created_at, cancelled_at, sale_type, payments(method)')
+          .gte('created_at', start.toISOString())
+          .lt('created_at', end.toISOString())
+          .order('created_at', { ascending: false })
+          .order('id')
+          .range(from, to))
+        if (transactionResult.error) throw new Error(transactionResult.error.message)
+        const transactions = (transactionResult.data ?? []).map((transaction) => {
+          const payment = Array.isArray(transaction.payments) ? transaction.payments[0] : transaction.payments
+          return { ...transaction, payment_method: payment?.method ?? null }
+        })
+        const transactionItems: DashboardData['transactionItems'] = []
+        for (let offset = 0; offset < transactions.length; offset += 100) {
+          const transactionIds = transactions.slice(offset, offset + 100).map((transaction) => transaction.id)
+          const itemResult = await fetchAllPages((from, to) => activeClient
+            .from('transaction_items')
+            .select('transaction_id, product_id, quantity')
+            .in('transaction_id', transactionIds)
+            .order('transaction_id')
+            .range(from, to))
+          if (itemResult.error) throw new Error(itemResult.error.message)
+          transactionItems.push(...(itemResult.data ?? []))
+        }
+        if (!mounted) return
+        setMonthlySalesSnapshot({ transactions, transactionItems })
+        setMonthlyLoadedMonth(reportMonth)
+        setMonthlyLoadState('ready')
+      } catch {
+        if (!mounted) return
+        setMonthlyErrorMonth(reportMonth)
+        setMonthlyLoadError('Laporan bulan ini gagal dimuat. Periksa koneksi, lalu coba lagi.')
+        setMonthlyLoadState('error')
+      }
+    }
+    void loadMonthlySales()
+    return () => { mounted = false }
+  }, [reportPeriod, reportMode, reportMonth, monthlyRefreshKey])
   const isInReportPeriod = (createdAt: string) => reportPeriod === 'custom' && (!reportCustomFrom || !reportCustomTo) ? false : new Date(createdAt) >= periodStart && new Date(createdAt) <= periodEnd
   const formatReportDate = (date: Date) => date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
+  const selectedMonthLabel = periodStart.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
   const reportPeriodLabel = reportPeriod === 'custom'
     ? reportCustomFrom && reportCustomTo
       ? `Custom: ${formatReportDate(new Date(`${reportCustomFrom}T00:00:00`))} - ${formatReportDate(new Date(`${reportCustomTo}T00:00:00`))}`
       : 'Custom (tanggal belum lengkap)'
-    : `${{ daily: 'Harian', weekly: 'Mingguan', monthly: 'Bulanan' }[reportPeriod]}: ${formatReportDate(periodStart)}${reportPeriod === 'daily' ? '' : ` - ${formatReportDate(periodEnd)}`}`
-  const hasValidExportPeriod = reportPeriod !== 'custom' || Boolean(reportCustomFrom && reportCustomTo)
+    : reportPeriod === 'monthly'
+      ? `Bulanan: ${selectedMonthLabel}`
+      : `${{ daily: 'Harian', weekly: 'Mingguan' }[reportPeriod]}: ${formatReportDate(periodStart)}${reportPeriod === 'daily' ? '' : ` - ${formatReportDate(periodEnd)}`}`
+  const hasValidExportPeriod = reportPeriod === 'monthly'
+    ? /^(\d{4})-(0[1-9]|1[0-2])$/.test(reportMonth)
+    : reportPeriod !== 'custom' || Boolean(reportCustomFrom && reportCustomTo)
   const reportPdfFilter: ReportExportFilter = {
     periodLabel: reportPeriodLabel,
     startTime: hasValidExportPeriod ? periodStart.getTime() : null,
@@ -2220,12 +2306,24 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     hasValidPeriod: hasValidExportPeriod,
   }
   const paymentMethodLabel = (method: string | null | undefined) => ({ CASH: 'Tunai', QRIS: 'QRIS', TRANSFER: 'Transfer', DEBIT: 'Debit', CREDIT: 'Kredit' }[method ?? ''] ?? 'Tidak diketahui')
-  const transactions = data.transactions.filter((item) => !item.cancelled_at && (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
+  const salesSnapshot = reportPeriod === 'monthly'
+    ? monthlySalesSnapshot
+    : { transactions: data.transactions, transactionItems: data.transactionItems }
+  const reportTransactions = salesSnapshot?.transactions ?? []
+  const reportTransactionItems = salesSnapshot?.transactionItems ?? []
+  const transactions = reportTransactions.filter((item) => !item.cancelled_at && (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
+  const transactionIds = new Set(transactions.map((transaction) => transaction.id))
+  const reportItemsByTransaction = new Map<string, DashboardData['transactionItems']>()
+  for (const item of reportTransactionItems) {
+    const items = reportItemsByTransaction.get(item.transaction_id) ?? []
+    items.push(item)
+    reportItemsByTransaction.set(item.transaction_id, items)
+  }
   const revenue = transactions.reduce((sum, item) => sum + Number(item.grand_total), 0)
   const productName = (productId: string) => data.products.find((product) => product.id === productId)?.name ?? 'Produk'
   const soldQuantityByProduct = new Map<string, number>()
-  for (const item of data.transactionItems) {
-    if (!transactions.some((transaction) => transaction.id === item.transaction_id)) continue
+  for (const item of reportTransactionItems) {
+    if (!transactionIds.has(item.transaction_id)) continue
     soldQuantityByProduct.set(item.product_id, (soldQuantityByProduct.get(item.product_id) ?? 0) + Number(item.quantity))
   }
   const bestSellingProduct = [...soldQuantityByProduct.entries()].sort((left, right) => right[1] - left[1])[0]
@@ -2285,14 +2383,19 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
   const renderStockLocationFilter = () => reportMode === 'stok' && <label className="report-stock-location-filter"><span>Lokasi stok</span><select value={location} onChange={(event) => setLocation(event.target.value)}><option value="all">Semua lokasi</option>{stockReportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
   const renderReportPeriodFilter = () => {
     if (reportMode === 'stok') return renderStockLocationFilter()
-    return <div className="report-period-filter"><label><span>{isOperationalUser ? 'Periode penjualan' : 'Periode laporan'}</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}</div>
+    return <div className="report-period-filter"><label><span>{isOperationalUser ? 'Periode penjualan' : 'Periode laporan'}</span><select value={reportPeriod} onChange={(event) => setReportPeriod(event.target.value as typeof reportPeriod)}><option value="daily">Harian</option><option value="weekly">Mingguan</option><option value="monthly">Bulanan</option><option value="custom">Custom tanggal</option></select></label>{reportPeriod === 'monthly' && <label><span>Bulan laporan</span><input aria-label="Bulan laporan" type="month" max={`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`} value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} /></label>}{reportPeriod === 'custom' && <><label><span>Dari</span><input type="date" value={reportCustomFrom} onChange={(event) => setReportCustomFrom(event.target.value)} /></label><label><span>Sampai</span><input type="date" value={reportCustomTo} onChange={(event) => setReportCustomTo(event.target.value)} /></label></>}</div>
   }
   if (isOperationalUser && reportMode !== 'penjualan') {
     const isStockReport = reportMode === 'stok'
     const title = isStockReport ? 'Laporan stok' : reportMode === 'transfer-masuk' ? 'Transfer masuk' : 'Transfer keluar'
     return <section className="module-page reports-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{title}</h1><p className="subtitle">Data operasional sesuai lokasi Anda.</p></div>{renderReportPeriodFilter()}</div>{renderReportModeTabs()}<div className="panel table-panel"><div className="panel-heading"><div><h2>{isStockReport ? 'Stok per lokasi' : title}</h2><p>{isStockReport ? `${modeStock.length} baris stok` : `${modeTransfers.length} transfer tercatat`}</p></div></div><div className="table-wrap">{isStockReport ? <table><thead><tr><th>Produk</th><th>Lokasi</th><th>Jumlah</th><th>Status</th></tr></thead><tbody>{modeStock.map((stock) => <tr key={`${stock.location_id}:${stock.product_id}`}><td><strong>{productName(stock.product_id)}</strong></td><td>{locationName(stock.location_id)}</td><td>{formatNumber(Number(stock.quantity))}</td><td><span className={Number(stock.quantity) <= 5 ? 'status negative' : 'status positive'}>{Number(stock.quantity) <= 5 ? 'Menipis' : 'Aman'}</span></td></tr>)}</tbody></table> : <table><thead><tr><th>Transfer</th><th>Dari</th><th>Ke</th><th>Status</th><th>Tanggal</th></tr></thead><tbody>{modeTransfers.map((transfer) => <tr key={transfer.id}><td><strong>{transfer.id.replace(/-/g, '').slice(0, 8).toUpperCase()}</strong></td><td>{locationName(transfer.source_location_id)}</td><td>{locationName(transfer.destination_location_id)}</td><td><span className="transfer-badge">{transfer.status}</span></td><td>{new Date(transfer.created_at).toLocaleString('id-ID')}</td></tr>)}</tbody></table>}{(isStockReport ? !modeStock.length : !modeTransfers.length) && <div className="empty-state">Belum ada data untuk mode laporan ini.</div>}</div></div></section>
   }
-  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{renderReportPeriodFilter()}<label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" onClick={onDownloadCsv}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" onClick={() => onDownloadPdf(reportPdfFilter)}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}<div className="report-cards"><MetricCard label="Omzet" value={formatCurrency(revenue)} change="Data terbaru" tone="brown" icon={CircleDollarSign} /><MetricCard label="Transaksi" value={formatNumber(transactions.length)} change="Data terbaru" tone="green" icon={ShoppingCart} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{transactions.length} rows returned</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{transactions.map((item) => { const details = data.transactionItems.filter((entry) => entry.transaction_id === item.id); return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!transactions.length && <div className="empty-state">Belum ada transaksi untuk filter ini.</div>}</div></div><SalesHistoryPanel profile={profile} locations={reportLocations} locationId={location} products={data.products} /></section>
+  const monthlySalesReady = reportMode === 'penjualan' && reportPeriod === 'monthly' && monthlyLoadState === 'ready' && monthlyLoadedMonth === reportMonth
+  const monthlySalesLoading = reportMode === 'penjualan' && reportPeriod === 'monthly' && !monthlySalesReady && monthlyErrorMonth !== reportMonth
+  const monthlySalesError = reportMode === 'penjualan' && reportPeriod === 'monthly' && monthlyErrorMonth === reportMonth
+  const exportDisabled = (reportPeriod === 'monthly' && !monthlySalesReady) || !hasValidExportPeriod
+  const exportSnapshot = salesSnapshot ?? { transactions: [], transactionItems: [] }
+  return <section className="module-page"><div className="module-heading"><div><p className="eyebrow">REPORTS</p><h1>{isOperationalUser ? 'Laporan operasional' : 'Sales report'}</h1><p className="subtitle">{isOperationalUser ? 'Data yang relevan sesuai lokasi dan peran Anda.' : 'Data langsung dari transaksi Supabase.'}</p></div><div className="reports-actions" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>{renderReportPeriodFilter()}<label className="pos-location">Location<select value={location} onChange={(event) => setLocation(event.target.value)} disabled={!canSelectReportLocation}>{canSelectReportLocation && <option value="all">Semua lokasi</option>}{reportLocations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><button className="button button-secondary" type="button" disabled={exportDisabled} onClick={() => onDownloadCsv(reportPdfFilter, exportSnapshot)}><ArrowDownToLine size={16} /> CSV</button><button className="button button-secondary" type="button" disabled={exportDisabled} onClick={() => onDownloadPdf(reportPdfFilter, exportSnapshot)}><ArrowDownToLine size={16} /> PDF</button></div></div>{isOperationalUser && <div className="report-mode-tabs">{reportModes.map((mode) => <button key={mode.key} type="button" className={`report-mode-tab ${reportMode === mode.key ? 'active' : ''}`} onClick={() => setReportMode(mode.key)}>{mode.label}</button>)}</div>}{monthlySalesLoading && <div className="empty-state" role="status">Memuat laporan {selectedMonthLabel}...</div>}{monthlySalesError && <div className="data-error" role="alert">{monthlyLoadError} <button type="button" className="text-button" onClick={() => setMonthlyRefreshKey((current) => current + 1)}>Coba lagi</button></div>}<div className="report-cards"><MetricCard label="Omzet" value={monthlySalesLoading ? 'Memuat...' : formatCurrency(revenue)} change={reportPeriod === 'monthly' ? selectedMonthLabel : 'Periode dipilih'} tone="brown" icon={CircleDollarSign} /><MetricCard label="Transaksi" value={monthlySalesLoading ? 'Memuat...' : formatNumber(transactions.length)} change={reportPeriod === 'monthly' ? selectedMonthLabel : 'Periode dipilih'} tone="green" icon={ShoppingCart} /></div><div className="panel table-panel"><div className="panel-heading"><div><h2>Sales transactions</h2><p>{monthlySalesLoading ? 'Memuat transaksi...' : `${transactions.length} transaksi`}</p></div></div><div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Produk & Qty</th><th>Location</th><th>Total</th><th>Created</th></tr></thead><tbody>{!monthlySalesLoading && !monthlySalesError && transactions.map((item) => { const details = reportItemsByTransaction.get(item.id) ?? []; return <tr key={item.id}><td><strong>{item.invoice_no}</strong></td><td>{!details.length ? <span className="muted-text">—</span> : <div className="invoice-detail-list">{details.map((entry) => <span key={`${item.id}-${entry.product_id}`} className="invoice-detail-item"><span className="invoice-detail-name">{productName(entry.product_id)}</span><span className="invoice-detail-qty">Qty {entry.quantity}</span></span>)}</div>}</td><td>{locationName(item.location_id)}</td><td><strong>{formatCurrency(Number(item.grand_total))}</strong></td><td>{new Date(item.created_at).toLocaleString('id-ID')}</td></tr> })}</tbody></table>{!monthlySalesLoading && !monthlySalesError && !transactions.length && <div className="empty-state">{reportPeriod === 'monthly' ? `Belum ada transaksi pada ${selectedMonthLabel}.` : 'Belum ada transaksi untuk filter ini.'}</div>}</div></div><SalesHistoryPanel profile={profile} locations={reportLocations} locationId={location} products={data.products} /></section>
 }
 
 function SalesHistoryPanel({ profile, locations, locationId, products }: { profile: Profile; locations: LocationOption[]; locationId: string; products: DashboardData['products'] }) {

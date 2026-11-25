@@ -38,6 +38,31 @@ test.describe('operational PWA flows', () => {
     expect(visibleLocations.size).toBeGreaterThan(1)
   })
 
+  test('loads and downloads a previous month report', async ({ page }) => {
+    const mobileNav = page.getByRole('navigation', { name: 'Navigasi utama mobile' })
+    await mobileNav.getByRole('button', { name: 'Laporan' }).click()
+    await page.getByLabel('Periode penjualan').selectOption('monthly')
+
+    const previousMonth = new Date()
+    previousMonth.setDate(1)
+    previousMonth.setMonth(previousMonth.getMonth() - 1)
+    const monthValue = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`
+    await page.getByLabel('Bulan laporan').fill(monthValue)
+    await expect(page.getByRole('button', { name: 'CSV' })).toBeEnabled()
+
+    const [csvDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'CSV' }).click(),
+    ])
+    expect(csvDownload.suggestedFilename()).toMatch(/laporan-operasional-Bulanan-.*\.csv/)
+
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'PDF' }).click(),
+    ])
+    expect(pdfDownload.suggestedFilename()).toMatch(/laporan-operasional-Bulanan-.*\.pdf/)
+  })
+
   test('opens the floating cart without navigating the page', async ({ page }) => {
     const mobileNav = page.getByRole('navigation', { name: 'Navigasi utama mobile' })
     await mobileNav.getByRole('button', { name: 'Kasir' }).click()
