@@ -96,4 +96,13 @@ test.describe('master desktop shell', () => {
     await page.locator('.sidebar').getByRole('button', { name: 'Laporan' }).click()
     await expect(page.getByRole('heading', { name: 'Sales report' })).toBeVisible()
   })
+
+  test('shows all sale types in the master cart', async ({ page }) => {
+    await page.locator('.sidebar').getByRole('button', { name: 'Kasir' }).click()
+    await expect(page.getByRole('heading', { name: 'New sale' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Ecer', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Grosir', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'TikTok', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Shopee', exact: true })).toBeVisible()
+  })
 })

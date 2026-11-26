@@ -90,7 +90,7 @@ function getInitialActiveMenu(profile: Profile) {
 }
 
 type DashboardData = {
-  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; cancelled_at?: string | null; sale_type?: 'ECER' | 'GROSIR'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
+  transactions: Array<{ id: string; invoice_no: string; location_id: string; grand_total: number; created_at: string; cancelled_at?: string | null; sale_type?: 'ECER' | 'GROSIR' | 'TIKTOK' | 'SHOPEE'; payment_method?: 'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT' | null }>
   transactionItems: Array<{ transaction_id: string; product_id: string; quantity: number }>
   products: Array<{ id: string; name: string; sku?: string; category_id?: string | null; active: boolean }>
   stock: Array<{ product_id: string; location_id: string; quantity: number }>
@@ -1422,7 +1422,7 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
   })
   const [search, setSearch] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'QRIS' | 'TRANSFER' | 'DEBIT' | 'CREDIT'>('CASH')
-  const [saleType, setSaleType] = useState<'ECER' | 'GROSIR'>('ECER')
+  const [saleType, setSaleType] = useState<'ECER' | 'GROSIR' | 'TIKTOK' | 'SHOPEE'>('ECER')
   const [loading, setLoading] = useState(true)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -1454,11 +1454,21 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     picker.append(label)
     const options = document.createElement('div')
     options.className = 'sale-type-options'
-    for (const type of ['ECER', 'GROSIR'] as const) {
+    const allowedTypes: Array<'ECER' | 'GROSIR' | 'TIKTOK' | 'SHOPEE'> =
+      profile.role === 'MASTER' || profile.role === 'WAREHOUSE'
+        ? ['ECER', 'GROSIR', 'TIKTOK', 'SHOPEE']
+        : ['ECER', 'GROSIR']
+    for (const type of allowedTypes) {
       const button = document.createElement('button')
       button.type = 'button'
       button.className = `sale-type-option ${saleType === type ? 'active' : ''}`
-      button.textContent = type === 'ECER' ? 'Ecer' : 'Grosir'
+      const labels: Record<typeof type, string> = {
+        ECER: 'Ecer',
+        GROSIR: 'Grosir',
+        TIKTOK: 'TikTok',
+        SHOPEE: 'Shopee',
+      }
+      button.textContent = labels[type]
       button.setAttribute('aria-pressed', String(saleType === type))
       button.addEventListener('click', () => setSaleType(type))
       options.append(button)
@@ -1466,7 +1476,7 @@ function PosView({ profile, locations }: { profile: Profile; locations: Array<{ 
     picker.append(options)
     heading.after(picker)
     return () => picker.remove()
-  }, [saleType])
+  }, [profile.role, saleType])
 
   useEffect(() => {
     if (!locationId && locations[0]?.id) setLocationId(locations[0].id)
@@ -2311,7 +2321,13 @@ function ReportsView({ data, profile, onDownloadCsv, onDownloadPdf }: { data: Da
     : { transactions: data.transactions, transactionItems: data.transactionItems }
   const reportTransactions = salesSnapshot?.transactions ?? []
   const reportTransactionItems = salesSnapshot?.transactionItems ?? []
-  const transactions = reportTransactions.filter((item) => !item.cancelled_at && (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${item.sale_type === 'GROSIR' ? 'Grosir' : 'Ecer'} · ${paymentMethodLabel(item.payment_method)}` }))
+  const saleTypeLabels: Record<NonNullable<DashboardData['transactions'][number]['sale_type']>, string> = {
+    ECER: 'Ecer',
+    GROSIR: 'Grosir',
+    TIKTOK: 'TikTok',
+    SHOPEE: 'Shopee',
+  }
+  const transactions = reportTransactions.filter((item) => !item.cancelled_at && (location === 'all' || item.location_id === location) && isInReportPeriod(item.created_at)).map((item) => ({ ...item, invoice_no: `${item.invoice_no} · ${saleTypeLabels[item.sale_type ?? 'ECER']} · ${paymentMethodLabel(item.payment_method)}` }))
   const transactionIds = new Set(transactions.map((transaction) => transaction.id))
   const reportItemsByTransaction = new Map<string, DashboardData['transactionItems']>()
   for (const item of reportTransactionItems) {
